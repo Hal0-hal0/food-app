@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="primary_orange">#F7941D</color>
+    <color name="light_orange">#FFB84D</color>
+    <color name="dark_blue_gray">#2C3E50</color>
+    <color name="white">#FFFFFF</color>
+    <color name="black">#1C1B1F</color>
+    <color name="error">#D32F2F</color>
+    <color name="success">#388E3C</color>
+    <color name="gray100">#F5F5F5</color>
+    <color name="gray500">#9E9E9E</color>
+</resources>
