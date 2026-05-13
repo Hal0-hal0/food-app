@@ -67,11 +67,54 @@ data class PolylineData(
     val duration: Long = 0L
 )
 
+// Route info displayed in the floating box
+data class RouteInfo(
+    val originName: String,
+    val destinationName: String,
+    val distanceKm: Double
+)
+
 @Serializable
 data class LatLng(
     val latitude: Double,
     val longitude: Double
 )
+
+// Specialty food item from the Ilonggo food dataset
+data class Specialty(
+    val id: Int,
+    val name: String,
+    val description: String,
+    val history: String,
+    val imageUrl: String,
+    val categoryId: Int
+)
+
+// Food bookmark for specialty items
+@Serializable
+data class FoodBookmark(
+    val id: Int = 0,
+    val specialtyId: Int,
+    val userId: String = "",
+    val createdAt: Long = System.currentTimeMillis()
+)
+
+// Bookmark sort options
+enum class BookmarkSortOption(val displayName: String) {
+    DATE_NEWEST("Date (Newest)"),
+    DATE_OLDEST("Date (Oldest)"),
+    NAME_ASC("Name (A-Z)"),
+    RATING_HIGH("Rating (Highest)"),
+    RATING_LOW("Rating (Lowest)")
+}
+
+// Tracks where a loading action originated for contextual indicator placement
+enum class LoadingSource {
+    NONE,
+    SEARCH_BOX,
+    PILL,
+    CENTER
+}
 
 // UI State models
 data class PlaceDetail(
@@ -88,12 +131,25 @@ data class MapState(
     val polylines: List<PolylineData> = emptyList(),
     val userLocation: LatLng? = null,
     val isLoading: Boolean = false,
-    val error: String? = null
+    val error: String? = null,
+    val isSelectedPlaceBookmarked: Boolean = false,
+    val locationPermissionGranted: Boolean = false,
+    // Map type: 0=NORMAL, 1=SATELLITE, 2=TERRAIN, 3=HYBRID
+    val mapTypeIndex: Int = 0,
+    // Loading source for contextual indicator placement
+    val loadingSource: LoadingSource = LoadingSource.NONE,
+    // Route info for the floating box
+    val routeInfo: RouteInfo? = null,
+    // True when the map is centering/locating an establishment
+    val isLocating: Boolean = false,
+    // Place ID to locate on map (set from bookmarks "Locate" action)
+    val locatePlaceId: Int? = null
 )
 
 data class HomeState(
     val featuredPlaces: List<Place> = emptyList(),
     val categoryPlaces: Map<String, List<Place>> = emptyMap(),
+    val specialties: List<Specialty> = emptyList(),
     val isLoading: Boolean = false,
     val error: String? = null
 )
@@ -101,7 +157,8 @@ data class HomeState(
 data class BookmarkState(
     val bookmarks: List<Place> = emptyList(),
     val isLoading: Boolean = false,
-    val error: String? = null
+    val error: String? = null,
+    val sortOption: BookmarkSortOption = BookmarkSortOption.DATE_NEWEST
 )
 
 data class AuthState(

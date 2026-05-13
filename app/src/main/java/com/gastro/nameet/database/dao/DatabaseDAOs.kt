@@ -8,6 +8,7 @@ import androidx.room.Query
 import androidx.room.Update
 import com.gastro.nameet.database.entity.BookmarkEntity
 import com.gastro.nameet.database.entity.CommentEntity
+import com.gastro.nameet.database.entity.FoodBookmarkEntity
 import com.gastro.nameet.database.entity.FoodEntity
 import com.gastro.nameet.database.entity.PlaceEntity
 import com.gastro.nameet.database.entity.UserEntity
@@ -36,7 +37,7 @@ interface PlaceDao {
     @Query("SELECT * FROM places WHERE category = :category ORDER BY rating DESC")
     fun getPlacesByCategory(category: String): Flow<List<PlaceEntity>>
 
-    @Query("SELECT * FROM places WHERE name LIKE :query OR description LIKE :query")
+    @Query("SELECT * FROM places WHERE name LIKE :query OR description LIKE :query OR category LIKE :query")
     fun searchPlaces(query: String): Flow<List<PlaceEntity>>
 
     @Query("SELECT * FROM places WHERE latitude BETWEEN :minLat AND :maxLat AND longitude BETWEEN :minLon AND :maxLon")
@@ -140,4 +141,19 @@ interface UserDao {
 
     @Query("UPDATE users SET isLoggedIn = 0 WHERE isLoggedIn = 1")
     suspend fun logoutAllUsers()
+}
+
+@Dao
+interface FoodBookmarkDao {
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertBookmark(bookmark: FoodBookmarkEntity): Long
+
+    @Query("DELETE FROM food_bookmarks WHERE specialtyId = :specialtyId AND userId = :userId")
+    suspend fun removeBookmark(specialtyId: Int, userId: String)
+
+    @Query("SELECT * FROM food_bookmarks WHERE userId = :userId ORDER BY createdAt DESC")
+    fun getUserBookmarks(userId: String): Flow<List<FoodBookmarkEntity>>
+
+    @Query("SELECT * FROM food_bookmarks WHERE specialtyId = :specialtyId AND userId = :userId")
+    fun isBookmarked(specialtyId: Int, userId: String): Flow<FoodBookmarkEntity?>
 }

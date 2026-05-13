@@ -2,11 +2,13 @@ package com.gastro.nameet.repository
 
 import com.gastro.nameet.database.dao.BookmarkDao
 import com.gastro.nameet.database.dao.CommentDao
+import com.gastro.nameet.database.dao.FoodBookmarkDao
 import com.gastro.nameet.database.dao.FoodDao
 import com.gastro.nameet.database.dao.PlaceDao
 import com.gastro.nameet.database.dao.UserDao
 import com.gastro.nameet.database.entity.BookmarkEntity
 import com.gastro.nameet.database.entity.CommentEntity
+import com.gastro.nameet.database.entity.FoodBookmarkEntity
 import com.gastro.nameet.database.entity.FoodEntity
 import com.gastro.nameet.database.entity.PlaceEntity
 import com.gastro.nameet.database.entity.UserEntity
@@ -14,6 +16,7 @@ import com.gastro.nameet.model.Place
 import com.gastro.nameet.model.Food
 import com.gastro.nameet.model.Comment
 import com.gastro.nameet.model.Bookmark
+import com.gastro.nameet.model.FoodBookmark
 import com.gastro.nameet.model.User
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.firstOrNull
@@ -25,6 +28,9 @@ import javax.inject.Singleton
 class PlaceRepository @Inject constructor(
     private val placeDao: PlaceDao
 ) {
+    // Shared state to trigger map locating from other screens
+    val placeToLocate = kotlinx.coroutines.flow.MutableStateFlow<Int?>(null)
+
     fun getAllPlaces(): Flow<List<Place>> =
         placeDao.getAllPlaces().map { entities ->
             entities.map { it.toModel() }
@@ -262,6 +268,41 @@ class AuthRepository @Inject constructor(
         name = name,
         profileImageUrl = profileImageUrl,
         isLoggedIn = isLoggedIn,
+        createdAt = createdAt
+    )
+}
+
+@Singleton
+class FoodBookmarkRepository @Inject constructor(
+    private val foodBookmarkDao: FoodBookmarkDao
+) {
+    fun getUserBookmarks(userId: String): Flow<List<FoodBookmark>> =
+        foodBookmarkDao.getUserBookmarks(userId).map { entities ->
+            entities.map { it.toModel() }
+        }
+
+    fun isBookmarked(specialtyId: Int, userId: String): Flow<FoodBookmark?> =
+        foodBookmarkDao.isBookmarked(specialtyId, userId).map { entity ->
+            entity?.toModel()
+        }
+
+    suspend fun insertBookmark(bookmark: FoodBookmark): Long =
+        foodBookmarkDao.insertBookmark(bookmark.toEntity())
+
+    suspend fun removeBookmark(specialtyId: Int, userId: String) =
+        foodBookmarkDao.removeBookmark(specialtyId, userId)
+
+    private fun FoodBookmarkEntity.toModel() = FoodBookmark(
+        id = id,
+        specialtyId = specialtyId,
+        userId = userId,
+        createdAt = createdAt
+    )
+
+    private fun FoodBookmark.toEntity() = FoodBookmarkEntity(
+        id = id,
+        specialtyId = specialtyId,
+        userId = userId,
         createdAt = createdAt
     )
 }

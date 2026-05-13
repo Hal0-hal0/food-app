@@ -1,6 +1,7 @@
 package com.gastro.nameet.util
 
 import com.gastro.nameet.BuildConfig
+import com.gastro.nameet.model.LatLng
 
 object Constants {
     // App Info
@@ -34,9 +35,13 @@ object Constants {
     }
 
     // Map
-    const val DEFAULT_ZOOM = 12f
+    const val DEFAULT_ZOOM = 13f
     const val MAX_ZOOM = 20f
     const val MIN_ZOOM = 5f
+
+    // Default Iloilo City center
+    const val ILOILO_LAT = 10.7202
+    const val ILOILO_LNG = 122.5621
 
     // Polyline
     const val POLYLINE_WIDTH = 5f
@@ -65,10 +70,12 @@ object RouteConstants {
     const val BOOKMARKS = "bookmarks"
     const val PROFILE = "profile"
     const val SETTINGS = "settings"
+    const val FOOD_DETAIL = "food_detail"
 
     // Arguments
     const val PLACE_ID_ARG = "placeId"
     const val CATEGORY_ARG = "category"
+    const val FOOD_ID_ARG = "foodId"
 }
 
 object DistanceUtils {
@@ -144,12 +151,51 @@ object StringUtils {
     }
 }
 
+/**
+ * Decodes a Google Maps encoded polyline string into a list of LatLng points.
+ * @see <a href="https://developers.google.com/maps/documentation/utilities/polylinealgorithm">Polyline Algorithm</a>
+ */
+object PolylineDecoder {
+    fun decode(encoded: String): List<LatLng> {
+        val poly = mutableListOf<LatLng>()
+        var index = 0
+        var lat = 0
+        var lng = 0
+
+        while (index < encoded.length) {
+            var b: Int
+            var shift = 0
+            var result = 0
+            do {
+                b = encoded[index++].code - 63
+                result = result or (b and 0x1f shl shift)
+                shift += 5
+            } while (b >= 0x20)
+            val dlat = if (result and 1 != 0) (result shr 1).inv() else result shr 1
+            lat += dlat
+
+            shift = 0
+            result = 0
+            do {
+                b = encoded[index++].code - 63
+                result = result or (b and 0x1f shl shift)
+                shift += 5
+            } while (b >= 0x20)
+            val dlng = if (result and 1 != 0) (result shr 1).inv() else result shr 1
+            lng += dlng
+
+            poly.add(LatLng(lat / 1E5, lng / 1E5))
+        }
+        return poly
+    }
+}
+
 // Extension functions
-fun String.toLatLng(): com.gastro.nameet.model.LatLng? {
+fun String.toLatLng(): LatLng? {
     val parts = this.split(",")
     return if (parts.size == 2) {
         try {
-            com.gastro.nameet.model.LatLng(parts[0].toDouble(), parts[1].toDouble())
+            LatLng(parts[0].toDouble(), parts[1].toDouble())
         } catch (e: NumberFormatException) {
             null
         }
@@ -158,11 +204,11 @@ fun String.toLatLng(): com.gastro.nameet.model.LatLng? {
     }
 }
 
-fun com.gastro.nameet.model.LatLng.toGoogleLatLng(): com.google.android.gms.maps.model.LatLng {
+fun LatLng.toGoogleLatLng(): com.google.android.gms.maps.model.LatLng {
     return com.google.android.gms.maps.model.LatLng(this.latitude, this.longitude)
 }
 
-fun List<com.gastro.nameet.model.LatLng>.toGoogleLatLngList(): List<com.google.android.gms.maps.model.LatLng> {
+fun List<LatLng>.toGoogleLatLngList(): List<com.google.android.gms.maps.model.LatLng> {
     return this.map { it.toGoogleLatLng() }
 }
 

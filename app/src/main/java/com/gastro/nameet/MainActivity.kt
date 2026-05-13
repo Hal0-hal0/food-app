@@ -15,6 +15,15 @@ import dagger.hilt.android.AndroidEntryPoint
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        
+        // Explicitly initialize the Places SDK
+        if (!com.google.android.libraries.places.api.Places.isInitialized()) {
+            com.google.android.libraries.places.api.Places.initialize(
+                applicationContext,
+                getString(R.string.google_maps_api_key)
+            )
+        }
+
         setContent {
             GastroTheme {
                 Surface(

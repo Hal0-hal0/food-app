@@ -7,12 +7,14 @@ import androidx.datastore.preferences.preferencesDataStore
 import com.gastro.nameet.database.AppDatabase
 import com.gastro.nameet.database.dao.BookmarkDao
 import com.gastro.nameet.database.dao.CommentDao
+import com.gastro.nameet.database.dao.FoodBookmarkDao
 import com.gastro.nameet.database.dao.FoodDao
 import com.gastro.nameet.database.dao.PlaceDao
 import com.gastro.nameet.database.dao.UserDao
 import com.gastro.nameet.repository.AuthRepository
 import com.gastro.nameet.repository.BookmarkRepository
 import com.gastro.nameet.repository.CommentRepository
+import com.gastro.nameet.repository.FoodBookmarkRepository
 import com.gastro.nameet.repository.FoodRepository
 import com.gastro.nameet.repository.PlaceRepository
 import dagger.Module
@@ -26,6 +28,10 @@ import retrofit2.converter.kotlinx.serialization.asConverterFactory
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
+import com.google.android.libraries.places.api.Places
+import com.google.android.libraries.places.api.net.PlacesClient
+import com.google.android.gms.location.FusedLocationProviderClient
+import com.google.android.gms.location.LocationServices
 import java.util.concurrent.TimeUnit
 import javax.inject.Singleton
 
@@ -72,6 +78,12 @@ object AppModule {
         return appDatabase.userDao()
     }
 
+    @Singleton
+    @Provides
+    fun provideFoodBookmarkDao(appDatabase: AppDatabase): FoodBookmarkDao {
+        return appDatabase.foodBookmarkDao()
+    }
+
     // Repositories
     @Singleton
     @Provides
@@ -101,6 +113,12 @@ object AppModule {
     @Provides
     fun provideAuthRepository(userDao: UserDao): AuthRepository {
         return AuthRepository(userDao)
+    }
+
+    @Singleton
+    @Provides
+    fun provideFoodBookmarkRepository(foodBookmarkDao: FoodBookmarkDao): FoodBookmarkRepository {
+        return FoodBookmarkRepository(foodBookmarkDao)
     }
 
     // DataStore
@@ -143,5 +161,17 @@ object AppModule {
             .client(okHttpClient)
             .addConverterFactory(json.asConverterFactory("application/json".toMediaType()))
             .build()
+    }
+
+    @Singleton
+    @Provides
+    fun providePlacesClient(@ApplicationContext context: Context): PlacesClient {
+        return Places.createClient(context)
+    }
+
+    @Singleton
+    @Provides
+    fun provideFusedLocationClient(@ApplicationContext context: Context): FusedLocationProviderClient {
+        return LocationServices.getFusedLocationProviderClient(context)
     }
 }

@@ -1,13 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- App Name &amp; General -->
+    <!-- App Name & General -->
     <string name="app_name">Gastro Nameet</string>
     <string name="app_description">Discover local gastronomic delights</string>
 
-    <!-- API Keys -->
-    <string name="google_maps_api_key">${MAPS_API_KEY}</string>
+    <!-- API Keys are injected via build.gradle.kts from local.properties -->
 
-    <!-- Splash &amp; Start Screen -->
+    <!-- Splash & Start Screen -->
     <string name="splash_welcome">Welcome to Gastro Nameet</string>
     <string name="splash_subtitle">Discover culinary excellence</string>
     <string name="get_started">Get Started</string>
@@ -43,7 +42,7 @@
     <string name="snacks">Snacks</string>
     <string name="soup">Soup</string>
 
-    <!-- Maps &amp; Location -->
+    <!-- Maps & Location -->
     <string name="maps">Maps</string>
     <string name="location">Location</string>
     <string name="enable_location">Enable Location</string>
@@ -82,7 +81,7 @@
     <string name="add_bookmark">Add to Bookmarks</string>
     <string name="bookmarked">Bookmarked successfully</string>
 
-    <!-- Comments &amp; Reviews -->
+    <!-- Comments & Reviews -->
     <string name="comments">Comments</string>
     <string name="write_comment">Write a comment...</string>
     <string name="add_review">Add Review</string>
@@ -117,7 +116,7 @@
     <string name="bottom_nav_bookmarks">Bookmarks</string>
     <string name="bottom_nav_profile">Profile</string>
 
-    <!-- Errors &amp; Messages -->
+    <!-- Errors & Messages -->
     <string name="error">Error</string>
     <string name="success">Success</string>
     <string name="loading">Loading...</string>

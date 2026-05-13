@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -19,8 +21,17 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
-        // Load API key from local.properties (secure)
-        val apiKey = project.findProperty("MAPS_API_KEY")?.toString() ?: ""
+        // Load API key from local.properties
+        val localProperties = Properties()
+        val localPropertiesFile = rootProject.file("local.properties")
+        if (localPropertiesFile.exists()) {
+            localProperties.load(localPropertiesFile.inputStream())
+        }
+        val apiKey = localProperties.getProperty("MAPS_API_KEY")?.trim() ?: ""
+        
+        // Provide the key as a string resource for the Manifest
+        resValue("string", "google_maps_api_key", apiKey)
+        // Provide the key for use in Kotlin code
         buildConfigField("String", "MAPS_API_KEY", "\"$apiKey\"")
     }
 
@@ -96,12 +107,14 @@ dependencies {
     implementation(libs.okhttp.logging.interceptor)
     implementation(libs.kotlinx.serialization.json)
 
-    // Google Play Services
+    // Google Play Services & Maps
     implementation(libs.play.services.maps)
     implementation(libs.play.services.location)
+    implementation(libs.google.places)
     implementation(libs.maps.ktx)
     implementation(libs.maps.compose)
     implementation(libs.maps.compose.utils)
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.8.1")
 
     // DataStore
     implementation(libs.datastore.preferences)

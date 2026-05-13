@@ -6,11 +6,13 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import com.gastro.nameet.database.dao.BookmarkDao
 import com.gastro.nameet.database.dao.CommentDao
+import com.gastro.nameet.database.dao.FoodBookmarkDao
 import com.gastro.nameet.database.dao.FoodDao
 import com.gastro.nameet.database.dao.PlaceDao
 import com.gastro.nameet.database.dao.UserDao
 import com.gastro.nameet.database.entity.BookmarkEntity
 import com.gastro.nameet.database.entity.CommentEntity
+import com.gastro.nameet.database.entity.FoodBookmarkEntity
 import com.gastro.nameet.database.entity.FoodEntity
 import com.gastro.nameet.database.entity.PlaceEntity
 import com.gastro.nameet.database.entity.UserEntity
@@ -21,9 +23,10 @@ import com.gastro.nameet.database.entity.UserEntity
         FoodEntity::class,
         BookmarkEntity::class,
         CommentEntity::class,
-        UserEntity::class
+        UserEntity::class,
+        FoodBookmarkEntity::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -33,6 +36,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun bookmarkDao(): BookmarkDao
     abstract fun commentDao(): CommentDao
     abstract fun userDao(): UserDao
+    abstract fun foodBookmarkDao(): FoodBookmarkDao
 
     companion object {
         @Volatile

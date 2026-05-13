@@ -134,6 +134,14 @@ fun AppNavHost(navController: NavHostController) {
             PlaceDetailsScreen(navController)
         }
         composable(
+            route = "${RouteConstants.FOOD_DETAIL}/{${RouteConstants.FOOD_ID_ARG}}",
+            arguments = listOf(
+                navArgument(RouteConstants.FOOD_ID_ARG) { type = NavType.IntType }
+            )
+        ) {
+            FoodDetailScreen(navController)
+        }
+        composable(
             route = "${RouteConstants.SPECIALTIES}/{${RouteConstants.CATEGORY_ARG}}",
             arguments = listOf(
                 navArgument(RouteConstants.CATEGORY_ARG) { type = NavType.StringType }

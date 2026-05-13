@@ -84,3 +84,12 @@ data class UserEntity(
     val isLoggedIn: Boolean = false,
     val createdAt: Long = System.currentTimeMillis()
 )
+
+@Entity(tableName = "food_bookmarks")
+data class FoodBookmarkEntity(
+    @PrimaryKey(autoGenerate = true)
+    val id: Int = 0,
+    val specialtyId: Int,
+    val userId: String = "",
+    val createdAt: Long = System.currentTimeMillis()
+)
