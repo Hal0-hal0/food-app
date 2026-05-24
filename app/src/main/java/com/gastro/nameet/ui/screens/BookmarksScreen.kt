@@ -38,9 +38,7 @@ fun BookmarksScreen(
     var showSortMenu by remember { mutableStateOf(false) }
     var filter by remember { mutableStateOf<BookmarkType?>(null) }
 
-    LaunchedEffect(Unit) {
-        viewModel.loadUserBookmarks("current_user")
-    }
+    // Bookmarks now load reactively from the active user — no manual trigger.
 
     val filtered = remember(state.bookmarks, filter) {
         if (filter == null) state.bookmarks else state.bookmarks.filter { it.type == filter }
@@ -189,7 +187,7 @@ fun BookmarksScreen(
                                 }
                             } else null,
                             onRemoveClick = {
-                                viewModel.removeBookmark(item, "current_user")
+                                viewModel.removeBookmark(item)
                             }
                         )
                     }
