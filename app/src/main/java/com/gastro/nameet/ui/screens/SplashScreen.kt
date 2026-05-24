@@ -27,6 +27,8 @@ import androidx.navigation.NavController
 import com.gastro.nameet.R
 import com.gastro.nameet.util.RouteConstants
 import kotlinx.coroutines.delay
+import androidx.compose.foundation.shape.CircleShape
+import com.gastro.nameet.ui.theme.TertiaryDarkBlue
 
 @Composable
 fun SplashScreen(navController: NavController) {
@@ -53,30 +55,28 @@ fun SplashScreen(navController: NavController) {
             horizontalAlignment = Alignment.CenterHorizontally,
             modifier = Modifier.alpha(alpha.value)
         ) {
-            // Placeholder for logo
             Box(
                 modifier = Modifier
-                    .size(120.dp)
-                    .background(MaterialTheme.colorScheme.onPrimary, MaterialTheme.shapes.medium),
+                    .size(220.dp) // slightly bigger than the image
+                    .background(TertiaryDarkBlue, CircleShape),
                 contentAlignment = Alignment.Center
             ) {
-                Text(
-                    text = "GN",
-                    color = MaterialTheme.colorScheme.primary,
-                    fontSize = 48.sp,
-                    fontWeight = FontWeight.Bold
+                Image(
+                    painter = painterResource(id = R.drawable.gastronameet_logo),
+                    contentDescription = "App Logo",
+                    modifier = Modifier.size(200.dp)
                 )
             }
-            
+
             Spacer(modifier = Modifier.height(24.dp))
-            
+
             Text(
                 text = stringResource(id = R.string.app_name),
                 color = MaterialTheme.colorScheme.onPrimary,
                 style = MaterialTheme.typography.headlineLarge,
                 fontWeight = FontWeight.Bold
             )
-            
+
             Text(
                 text = stringResource(id = R.string.splash_subtitle),
                 color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.8f),

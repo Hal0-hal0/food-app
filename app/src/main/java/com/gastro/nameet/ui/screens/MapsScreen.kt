@@ -40,6 +40,12 @@ import com.gastro.nameet.util.RouteConstants
 import com.gastro.nameet.ui.theme.PrimaryOrange
 import com.gastro.nameet.model.LatLng as ModelLatLng
 import kotlinx.coroutines.launch
+import android.graphics.BitmapFactory
+import android.graphics.Bitmap
+import androidx.compose.ui.platform.LocalContext
+import com.google.android.gms.maps.model.BitmapDescriptor
+import com.google.android.gms.maps.model.BitmapDescriptorFactory
+import com.gastro.nameet.R
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalPermissionsApi::class)
 @Composable
@@ -219,7 +225,7 @@ fun MapsScreen(
                 modifier = Modifier.fillMaxSize(),
                 cameraPositionState = cameraPositionState,
                 properties = MapProperties(
-                    isMyLocationEnabled = hasLocationPermission,
+                    isMyLocationEnabled = false,
                     mapType = mapType,
                     minZoomPreference = 5f
                 ),
@@ -231,11 +237,14 @@ fun MapsScreen(
                 // should NOT clear the route. Use the X on the route info
                 // card or the Reset button to clear.
             ) {
+                val customMarker = rememberCustomMarkerBitmap()
+
                 state.places.forEach { place ->
                     Marker(
                         state = MarkerState(position = LatLng(place.latitude, place.longitude)),
                         title = place.name,
                         snippet = place.address.ifBlank { place.category },
+                        icon = customMarker,
                         onClick = {
                             viewModel.selectPlace(place.id)
                             true
@@ -244,11 +253,17 @@ fun MapsScreen(
                 }
 
                 // Show user location marker if we have it but the map's blue dot is disabled
-                if (!hasLocationPermission && state.userLocation != null) {
-                    val loc = state.userLocation!!
+                if (hasLocationPermission && state.userLocation != null) {
+                    val userMarker = rememberUserLocationMarkerBitmap()
                     Marker(
-                        state = MarkerState(position = LatLng(loc.latitude, loc.longitude)),
-                        title = "You are here"
+                        state = MarkerState(
+                            position = LatLng(
+                                state.userLocation!!.latitude,
+                                state.userLocation!!.longitude
+                            )
+                        ),
+                        title = "You are here",
+                        icon = userMarker
                     )
                 }
 
@@ -676,5 +691,33 @@ fun PlaceDetailsBottomSheetContent(
         }
         
         Spacer(modifier = Modifier.height(32.dp))
+    }
+}
+
+@Composable
+fun rememberCustomMarkerBitmap(): BitmapDescriptor? {
+    val context = LocalContext.current
+    return remember {
+        val bitmap = BitmapFactory.decodeResource(context.resources, R.drawable.gn_pin)
+
+        val targetWidth = 120
+        val aspectRatio = bitmap.height.toFloat() / bitmap.width.toFloat()
+        val targetHeight = (targetWidth * aspectRatio).toInt()
+
+        val scaledBitmap = Bitmap.createScaledBitmap(bitmap, targetWidth, targetHeight, false)
+        BitmapDescriptorFactory.fromBitmap(scaledBitmap)
+    }
+}
+
+@Composable
+fun rememberUserLocationMarkerBitmap(): BitmapDescriptor? {
+    val context = LocalContext.current
+    return remember {
+        val bitmap = BitmapFactory.decodeResource(context.resources, R.drawable.person_1) // your image
+        val targetWidth = 120
+        val aspectRatio = bitmap.height.toFloat() / bitmap.width.toFloat()
+        val targetHeight = (targetWidth * aspectRatio).toInt()
+        val scaledBitmap = Bitmap.createScaledBitmap(bitmap, targetWidth, targetHeight, false)
+        BitmapDescriptorFactory.fromBitmap(scaledBitmap)
     }
 }
