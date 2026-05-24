@@ -10,8 +10,11 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowForward
+import androidx.compose.material.icons.filled.BakeryDining
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.DinnerDining
 import androidx.compose.material.icons.filled.LocalDining
+import androidx.compose.material.icons.filled.LunchDining
 import androidx.compose.material.icons.filled.Restaurant
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
@@ -118,6 +121,22 @@ fun HomeScreen(
                             }
                         )
                     }
+                }
+            }
+
+            // ── Meal-type quick links (route to Maps filtered by meal) ──
+            if (!isSearching) {
+                item {
+                    MealTypeRow(
+                        onMealClick = { query ->
+                            navController.navigate(
+                                "${RouteConstants.MAPS}?${RouteConstants.MAP_QUERY_ARG}=${android.net.Uri.encode(query)}&${RouteConstants.LOCATE_PLACE_ID_ARG}=${RouteConstants.NO_PLACE_ID}"
+                            ) {
+                                popUpTo(RouteConstants.HOME)
+                                launchSingleTop = true
+                            }
+                        }
+                    )
                 }
             }
 
@@ -391,6 +410,103 @@ private fun SuggestionPlaceCard(place: Place, onClick: () -> Unit) {
                         )
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MealTypeRow(onMealClick: (query: String) -> Unit) {
+    Column(modifier = Modifier.fillMaxWidth().padding(top = 4.dp)) {
+        Text(
+            text = "What are you in the mood for?",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            MealCard(
+                modifier = Modifier.weight(1f),
+                label = "Breakfast",
+                icon = Icons.Default.BakeryDining,
+                imageUrl = "https://images.unsplash.com/photo-1533089860892-a7c6f0a88666?w=400&q=80",
+                onClick = { onMealClick("Breakfast") }
+            )
+            MealCard(
+                modifier = Modifier.weight(1f),
+                label = "Lunch",
+                icon = Icons.Default.LunchDining,
+                imageUrl = "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=400&q=80",
+                onClick = { onMealClick("Lunch") }
+            )
+            MealCard(
+                modifier = Modifier.weight(1f),
+                label = "Dinner",
+                icon = Icons.Default.DinnerDining,
+                imageUrl = "https://images.unsplash.com/photo-1467003909585-2f8a72700288?w=400&q=80",
+                onClick = { onMealClick("Dinner") }
+            )
+        }
+    }
+}
+
+@Composable
+private fun MealCard(
+    modifier: Modifier = Modifier,
+    label: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    imageUrl: String,
+    onClick: () -> Unit
+) {
+    Card(
+        modifier = modifier
+            .height(110.dp)
+            .clickable { onClick() },
+        shape = RoundedCornerShape(16.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+    ) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            AsyncImage(
+                model = imageUrl,
+                contentDescription = label,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop
+            )
+            // Dark gradient so the white label/icon stay readable on any photo
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(
+                                Color.Black.copy(alpha = 0.15f),
+                                Color.Black.copy(alpha = 0.65f)
+                            )
+                        )
+                    )
+            )
+            Column(
+                modifier = Modifier.fillMaxSize().padding(10.dp),
+                verticalArrangement = Arrangement.SpaceBetween
+            ) {
+                Icon(
+                    icon,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(28.dp)
+                )
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
             }
         }
     }

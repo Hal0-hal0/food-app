@@ -14,6 +14,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -29,68 +30,63 @@ fun AppNavigation() {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     
-    // We get the current route cleanly by dropping any arguments
-    val currentRoute = navBackStackEntry?.destination?.route
-        ?.substringBefore("/")
-        ?.substringBefore("?")
+    // Route-pattern base (strip any "/" path args or "?" query args).
+    val routePattern = navBackStackEntry?.destination?.route.orEmpty()
+    val currentRoute = routePattern
+        .substringBefore("/")
+        .substringBefore("?")
 
-    val bottomNavRoutes = listOf(
-        RouteConstants.HOME,
-        RouteConstants.MAPS,
-        RouteConstants.BOOKMARKS,
-        RouteConstants.PROFILE
+    // Routes where the bottom nav should be HIDDEN (the auth flow). We invert
+    // the check so any in-app screen — including detail screens, parameterised
+    // Maps, etc. — always has Home/Maps/Bookmarks/Profile tap targets.
+    val hideBottomNavRoutes = setOf(
+        RouteConstants.SPLASH,
+        RouteConstants.START,
+        RouteConstants.LOGIN,
+        RouteConstants.REGISTER
     )
 
-    val showBottomNav = currentRoute in bottomNavRoutes
+    val showBottomNav = currentRoute.isNotBlank() && currentRoute !in hideBottomNavRoutes
+
+    // Navigating to a tab from anywhere in the app should land you cleanly on
+    // that tab with a single back-stack entry, even if you came in from a
+    // chain of detail screens. We pop to the start destination of the graph
+    // so this works regardless of where the user is.
+    fun navigateToTab(route: String) {
+        if (currentRoute == route) return
+        navController.navigate(route) {
+            popUpTo(navController.graph.findStartDestination().id) {
+                saveState = true
+            }
+            launchSingleTop = true
+            restoreState = true
+        }
+    }
 
     if (showBottomNav) {
         NavigationSuiteScaffold(
             navigationSuiteItems = {
                 item(
                     selected = currentRoute == RouteConstants.HOME,
-                    onClick = {
-                        navController.navigate(RouteConstants.HOME) {
-                            popUpTo(RouteConstants.HOME) { saveState = true }
-                            launchSingleTop = true
-                            restoreState = true
-                        }
-                    },
+                    onClick = { navigateToTab(RouteConstants.HOME) },
                     icon = { Icon(if (currentRoute == RouteConstants.HOME) Icons.Filled.Home else Icons.Outlined.Home, contentDescription = "Home") },
                     label = { Text("Home") }
                 )
                 item(
                     selected = currentRoute == RouteConstants.MAPS,
-                    onClick = {
-                        navController.navigate(RouteConstants.MAPS) {
-                            popUpTo(RouteConstants.HOME) { saveState = true }
-                            launchSingleTop = true
-                            restoreState = true
-                        }
-                    },
+                    onClick = { navigateToTab(RouteConstants.MAPS) },
                     icon = { Icon(if (currentRoute == RouteConstants.MAPS) Icons.Filled.Map else Icons.Outlined.Map, contentDescription = "Maps") },
                     label = { Text("Maps") }
                 )
                 item(
                     selected = currentRoute == RouteConstants.BOOKMARKS,
-                    onClick = {
-                        navController.navigate(RouteConstants.BOOKMARKS) {
-                            popUpTo(RouteConstants.HOME) { saveState = true }
-                            launchSingleTop = true
-                            restoreState = true
-                        }
-                    },
+                    onClick = { navigateToTab(RouteConstants.BOOKMARKS) },
                     icon = { Icon(if (currentRoute == RouteConstants.BOOKMARKS) Icons.Filled.Bookmark else Icons.Outlined.BookmarkBorder, contentDescription = "Bookmarks") },
                     label = { Text("Bookmarks") }
                 )
                 item(
                     selected = currentRoute == RouteConstants.PROFILE,
-                    onClick = {
-                        navController.navigate(RouteConstants.PROFILE) {
-                            popUpTo(RouteConstants.HOME) { saveState = true }
-                            launchSingleTop = true
-                            restoreState = true
-                        }
-                    },
+                    onClick = { navigateToTab(RouteConstants.PROFILE) },
                     icon = { Icon(if (currentRoute == RouteConstants.PROFILE) Icons.Filled.Person else Icons.Outlined.Person, contentDescription = "Profile") },
                     label = { Text("Profile") }
                 )
