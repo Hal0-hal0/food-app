@@ -1,5 +1,6 @@
 package com.gastro.nameet.ui.screens
 
+import android.net.Uri
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -127,6 +128,15 @@ fun HomeScreen(
                                 items(specialties) { specialty ->
                                     SpecialtyCard(
                                         specialty = specialty,
+                                        onFindNearYouClick = {
+                                            navController.navigate(
+                                                "${RouteConstants.MAPS}?${RouteConstants.MAP_QUERY_ARG}=${Uri.encode(specialty.name)}&${RouteConstants.LOCATE_PLACE_ID_ARG}=${RouteConstants.NO_PLACE_ID}"
+                                            ) {
+                                                popUpTo(RouteConstants.HOME) { saveState = true }
+                                                launchSingleTop = true
+                                                restoreState = true
+                                            }
+                                        },
                                         onClick = {
                                             navController.navigate("${RouteConstants.FOOD_DETAIL}/${specialty.id}")
                                         }
@@ -216,6 +226,7 @@ fun HomeScreen(
 fun SpecialtyCard(
     specialty: Specialty,
     onClick: () -> Unit,
+    onFindNearYouClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Card(
@@ -253,6 +264,25 @@ fun SpecialtyCard(
                     overflow = TextOverflow.Ellipsis,
                     lineHeight = 14.sp
                 )
+                Spacer(modifier = Modifier.height(8.dp))
+                FilledTonalButton(
+                    onClick = onFindNearYouClick,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
+                ) {
+                    Icon(
+                        Icons.Default.Search,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = "Find Near You",
+                        style = MaterialTheme.typography.labelSmall,
+                        maxLines = 1
+                    )
+                }
             }
         }
     }

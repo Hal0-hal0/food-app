@@ -140,9 +140,11 @@ fun BookmarksScreen(
                                 navController.navigate("${RouteConstants.PLACE_DETAILS}/${place.id}")
                             },
                             onLocateClick = {
-                                viewModel.locatePlace(place.id)
-                                navController.navigate(RouteConstants.MAPS) {
+                                navController.navigate(
+                                    "${RouteConstants.MAPS}?${RouteConstants.MAP_QUERY_ARG}=&${RouteConstants.LOCATE_PLACE_ID_ARG}=${place.id}"
+                                ) {
                                     popUpTo(RouteConstants.HOME)
+                                    launchSingleTop = true
                                 }
                             }
                         )

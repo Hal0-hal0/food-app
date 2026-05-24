@@ -1,6 +1,8 @@
 package com.gastro.nameet.viewmodel
 
 import android.annotation.SuppressLint
+import android.content.Context
+import android.net.Uri
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -9,6 +11,7 @@ import com.gastro.nameet.database.SampleData
 import com.gastro.nameet.model.*
 import com.gastro.nameet.repository.*
 import com.gastro.nameet.util.Constants
+import com.gastro.nameet.util.DistanceUtils
 import com.gastro.nameet.util.PolylineDecoder
 import com.gastro.nameet.util.RouteConstants
 import com.google.android.gms.location.FusedLocationProviderClient
@@ -21,14 +24,19 @@ import kotlinx.coroutines.tasks.await
 import com.google.android.libraries.places.api.net.PlacesClient
 import com.google.android.libraries.places.api.model.Place.Field
 import com.google.android.libraries.places.api.model.CircularBounds
-import com.google.android.libraries.places.api.model.RectangularBounds
+import com.google.android.libraries.places.api.model.PhotoMetadata
+import com.google.android.libraries.places.api.net.FetchPhotoRequest
 import com.google.android.libraries.places.api.net.SearchByTextRequest
 import com.google.android.gms.maps.model.LatLng as MapsLatLng
 import com.gastro.nameet.model.LatLng as ModelLatLng
+import dagger.hilt.android.qualifiers.ApplicationContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
+import java.io.File
+import java.security.MessageDigest
 import javax.inject.Inject
+import javax.inject.Provider
 
 @HiltViewModel
 class AuthViewModel @Inject constructor(
@@ -295,7 +303,8 @@ class BookmarkViewModel @Inject constructor(
 class MapsViewModel @Inject constructor(
     private val placeRepository: PlaceRepository,
     private val bookmarkRepository: BookmarkRepository,
-    private val placesClient: PlacesClient,
+    @ApplicationContext private val context: Context,
+    private val placesClientProvider: Provider<PlacesClient>,
     private val fusedLocationClient: FusedLocationProviderClient,
     private val okHttpClient: OkHttpClient
 ) : ViewModel() {
@@ -350,13 +359,19 @@ class MapsViewModel @Inject constructor(
                     } else {
                         flow {
                             try {
+                                if (!Constants.HAS_MAPS_API_KEY) {
+                                    placeRepository.searchPlaces(query).collect { emit(it) }
+                                    return@flow
+                                }
+
                                 val placeFields = listOf(
                                     Field.ID,
                                     Field.NAME,
                                     Field.LAT_LNG,
                                     Field.ADDRESS,
                                     Field.RATING,
-                                    Field.TYPES
+                                    Field.TYPES,
+                                    Field.PHOTO_METADATAS
                                 )
 
                                 val iloiloCenter = MapsLatLng(Constants.ILOILO_LAT, Constants.ILOILO_LNG)
@@ -370,15 +385,25 @@ class MapsViewModel @Inject constructor(
                                     .setMaxResultCount(15)
                                     .build()
 
-                                val response = placesClient.searchByText(request).await()
+                                val response = placesClientProvider.get().searchByText(request).await()
                                 val googlePlaces = response.places.mapIndexed { index, googlePlace ->
+                                    val photoUri = googlePlace.photoMetadatas
+                                        ?.firstOrNull()
+                                        ?.let { metadata ->
+                                            fetchPlacePhotoUri(
+                                                photoMetadata = metadata,
+                                                placeKey = googlePlace.id ?: googlePlace.name ?: index.toString()
+                                            )
+                                        }
+                                        .orEmpty()
+
                                     Place(
                                         id = googlePlace.id?.hashCode() ?: index,
                                         name = googlePlace.name ?: "",
                                         description = googlePlace.types?.joinToString(", ") ?: "",
                                         latitude = googlePlace.latLng?.latitude ?: 0.0,
                                         longitude = googlePlace.latLng?.longitude ?: 0.0,
-                                        imageUrl = "https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=800", // Fallback image since Places SDK doesn't provide direct URLs
+                                        imageUrl = photoUri,
                                         rating = googlePlace.rating?.toFloat() ?: 0f,
                                         category = googlePlace.types?.firstOrNull()?.name ?: "Food",
                                         address = googlePlace.address ?: ""
@@ -591,10 +616,25 @@ class MapsViewModel @Inject constructor(
      * instead of drawing a straight line.
      */
     fun drawRouteToPlace(destination: Place) {
-        val userLoc = _mapState.value.userLocation ?: return
+        val originLoc = _mapState.value.userLocation
+            ?: ModelLatLng(Constants.ILOILO_LAT, Constants.ILOILO_LNG)
+
         viewModelScope.launch {
+            _mapState.update {
+                it.copy(
+                    isLoading = true,
+                    loadingSource = LoadingSource.ROUTE,
+                    polylines = emptyList(),
+                    routeInfo = null
+                )
+            }
             try {
-                val origin = "${userLoc.latitude},${userLoc.longitude}"
+                if (!Constants.HAS_MAPS_API_KEY) {
+                    drawStraightRoute(destination, originLoc)
+                    return@launch
+                }
+
+                val origin = "${originLoc.latitude},${originLoc.longitude}"
                 val dest = "${destination.latitude},${destination.longitude}"
                 val url = "https://maps.googleapis.com/maps/api/directions/json" +
                         "?origin=$origin&destination=$dest&mode=driving&key=${Constants.MAPS_API_KEY}"
@@ -629,28 +669,50 @@ class MapsViewModel @Inject constructor(
                     }
                 } else {
                     // Fallback to straight line if Directions API fails
-                    drawStraightRoute(destination)
+                    drawStraightRoute(destination, originLoc)
                 }
             } catch (e: Exception) {
                 // Fallback to straight line
-                drawStraightRoute(destination)
+                drawStraightRoute(destination, originLoc)
+            } finally {
+                _mapState.update {
+                    it.copy(
+                        isLoading = false,
+                        loadingSource = LoadingSource.NONE
+                    )
+                }
             }
         }
     }
 
-    private fun drawStraightRoute(destination: Place) {
-        val userLoc = _mapState.value.userLocation ?: return
+    private fun drawStraightRoute(destination: Place, originLoc: ModelLatLng) {
+        val distanceKm = DistanceUtils.calculateDistance(
+            originLoc.latitude,
+            originLoc.longitude,
+            destination.latitude,
+            destination.longitude
+        )
         val route = PolylineData(
             id = "route_${destination.id}",
             placeIds = listOf(destination.id),
             points = listOf(
-                userLoc,
+                originLoc,
                 ModelLatLng(destination.latitude, destination.longitude)
             ),
             color = "#F7941D",
-            width = 10f
+            width = 10f,
+            distance = distanceKm * 1000.0
         )
-        _mapState.update { it.copy(polylines = listOf(route)) }
+        _mapState.update {
+            it.copy(
+                polylines = listOf(route),
+                routeInfo = RouteInfo(
+                    originName = if (it.userLocation != null) "Current Location" else "Iloilo City Center",
+                    destinationName = destination.name,
+                    distanceKm = distanceKm
+                )
+            )
+        }
     }
 
     private fun parseDirectionsResponse(json: String): List<ModelLatLng> {
@@ -683,7 +745,7 @@ class MapsViewModel @Inject constructor(
         }
     }
 
-    fun locatePlaceOnMap(placeId: Int) {
+    fun locatePlaceOnMap(placeId: Int, drawRoute: Boolean = false) {
         viewModelScope.launch {
             _mapState.update { it.copy(isLocating = true) }
             val place = placeRepository.getPlaceById(placeId).firstOrNull()
@@ -694,6 +756,9 @@ class MapsViewModel @Inject constructor(
                         selectedPlace = place,
                         isLocating = false
                     )
+                }
+                if (drawRoute) {
+                    drawRouteToPlace(place)
                 }
             } else {
                 _mapState.update { it.copy(isLocating = false, error = "Place not found") }
@@ -718,6 +783,40 @@ class MapsViewModel @Inject constructor(
 
     fun clearError() {
         _mapState.update { it.copy(error = null) }
+    }
+
+    private suspend fun fetchPlacePhotoUri(
+        photoMetadata: PhotoMetadata,
+        placeKey: String
+    ): String? {
+        return try {
+            val photoDir = File(context.cacheDir, "place_photos").apply { mkdirs() }
+            val photoFile = File(photoDir, "${placeKey.stableFileName()}.jpg")
+            if (photoFile.exists()) {
+                return Uri.fromFile(photoFile).toString()
+            }
+
+            val request = FetchPhotoRequest.builder(photoMetadata)
+                .setMaxWidth(800)
+                .setMaxHeight(500)
+                .build()
+            val bitmap = placesClientProvider.get().fetchPhoto(request).await().bitmap
+            withContext(Dispatchers.IO) {
+                photoFile.outputStream().use { stream ->
+                    bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 88, stream)
+                }
+            }
+            Uri.fromFile(photoFile).toString()
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    private fun String.stableFileName(): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+            .digest(toByteArray())
+            .joinToString("") { "%02x".format(it) }
+        return digest.take(24)
     }
 }
 

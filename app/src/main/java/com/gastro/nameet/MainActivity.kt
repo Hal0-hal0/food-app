@@ -9,6 +9,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
 import com.gastro.nameet.ui.navigation.AppNavigation
 import com.gastro.nameet.ui.theme.GastroTheme
+import com.gastro.nameet.util.Constants
 import dagger.hilt.android.AndroidEntryPoint
 
 @AndroidEntryPoint
@@ -16,8 +17,8 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         
-        // Explicitly initialize the Places SDK
-        if (!com.google.android.libraries.places.api.Places.isInitialized()) {
+        // Explicitly initialize the Places SDK only when a key is configured.
+        if (Constants.HAS_MAPS_API_KEY && !com.google.android.libraries.places.api.Places.isInitialized()) {
             com.google.android.libraries.places.api.Places.initialize(
                 applicationContext,
                 getString(R.string.google_maps_api_key)

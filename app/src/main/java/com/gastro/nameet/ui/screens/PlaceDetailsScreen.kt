@@ -24,6 +24,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
 import com.gastro.nameet.ui.theme.PrimaryOrange
+import com.gastro.nameet.util.RouteConstants
 import com.gastro.nameet.viewmodel.PlaceDetailsViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -210,9 +211,11 @@ fun PlaceDetailsScreen(
                             // Locate Button
                             Button(
                                 onClick = {
-                                    viewModel.locatePlace()
-                                    navController.navigate(com.gastro.nameet.util.RouteConstants.MAPS) {
-                                        popUpTo(com.gastro.nameet.util.RouteConstants.HOME)
+                                    navController.navigate(
+                                        "${RouteConstants.MAPS}?${RouteConstants.MAP_QUERY_ARG}=&${RouteConstants.LOCATE_PLACE_ID_ARG}=${state.place.id}"
+                                    ) {
+                                        popUpTo(RouteConstants.HOME)
+                                        launchSingleTop = true
                                     }
                                 },
                                 modifier = Modifier.fillMaxWidth(),

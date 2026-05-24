@@ -45,6 +45,8 @@ import kotlinx.coroutines.launch
 @Composable
 fun MapsScreen(
     navController: NavController,
+    initialSearchQuery: String? = null,
+    initialLocatePlaceId: Int? = null,
     viewModel: MapsViewModel = hiltViewModel()
 ) {
     val state by viewModel.mapState.collectAsState()
@@ -73,6 +75,18 @@ fun MapsScreen(
         else -> MapType.NORMAL
     }
     val mapTypeLabels = listOf("Standard", "Satellite", "Terrain", "Hybrid")
+
+    LaunchedEffect(initialSearchQuery) {
+        initialSearchQuery?.takeIf { it.isNotBlank() }?.let { query ->
+            viewModel.onSearchQueryChange(query)
+        }
+    }
+
+    LaunchedEffect(initialLocatePlaceId) {
+        initialLocatePlaceId?.let { placeId ->
+            viewModel.locatePlaceOnMap(placeId, drawRoute = true)
+        }
+    }
 
     // Location permissions
     val locationPermissionsState = rememberMultiplePermissionsState(
@@ -143,6 +157,35 @@ fun MapsScreen(
                         LatLng(loc.latitude, loc.longitude), 16f
                     )
                 )
+            }
+        }
+    }
+
+    LaunchedEffect(state.polylines) {
+        val routePoints = state.polylines.flatMap { it.points }
+        if (routePoints.isNotEmpty()) {
+            val boundsBuilder = LatLngBounds.builder()
+            routePoints.forEach { point ->
+                boundsBuilder.include(LatLng(point.latitude, point.longitude))
+            }
+            state.places.forEach { place ->
+                boundsBuilder.include(LatLng(place.latitude, place.longitude))
+            }
+            scope.launch {
+                try {
+                    cameraPositionState.animate(
+                        CameraUpdateFactory.newLatLngBounds(boundsBuilder.build(), 120)
+                    )
+                } catch (e: Exception) {
+                    state.places.firstOrNull()?.let { place ->
+                        cameraPositionState.animate(
+                            CameraUpdateFactory.newLatLngZoom(
+                                LatLng(place.latitude, place.longitude),
+                                15f
+                            )
+                        )
+                    }
+                }
             }
         }
     }
@@ -414,6 +457,32 @@ fun MapsScreen(
                             CircularProgressIndicator(color = PrimaryOrange)
                             Spacer(modifier = Modifier.height(16.dp))
                             Text("Locating...", style = MaterialTheme.typography.bodyMedium)
+                        }
+                    }
+                }
+            }
+
+            if (state.isLoading && state.loadingSource == LoadingSource.ROUTE) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
+                        shadowElevation = 8.dp
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(24.dp),
+                                strokeWidth = 3.dp,
+                                color = PrimaryOrange
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text("Drawing route...", style = MaterialTheme.typography.bodyMedium)
                         }
                     }
                 }

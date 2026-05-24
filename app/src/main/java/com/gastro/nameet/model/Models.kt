@@ -113,7 +113,8 @@ enum class LoadingSource {
     NONE,
     SEARCH_BOX,
     PILL,
-    CENTER
+    CENTER,
+    ROUTE
 }
 
 // UI State models
