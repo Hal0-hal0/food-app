@@ -12,20 +12,25 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.layout.ContentScale
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
+import coil.compose.AsyncImage
 import com.gastro.nameet.R
 import com.gastro.nameet.ui.components.BottomNavBar
 import com.gastro.nameet.util.RouteConstants
 import com.gastro.nameet.viewmodel.AuthViewModel
+import com.gastro.nameet.viewmodel.SettingsViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProfileScreen(
     navController: NavController,
-    viewModel: AuthViewModel = hiltViewModel()
+    viewModel: AuthViewModel = hiltViewModel(),
+    settingsViewModel: SettingsViewModel = hiltViewModel()
 ) {
     val authState by viewModel.authState.collectAsState()
+    val darkMode by settingsViewModel.darkMode.collectAsState()
 
     Scaffold(
         topBar = {
@@ -47,13 +52,23 @@ fun ProfileScreen(
                 shape = CircleShape,
                 color = MaterialTheme.colorScheme.primaryContainer
             ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        Icons.Default.Person,
+                val profileImage = authState.user?.profileImageUrl.orEmpty()
+                if (profileImage.isNotBlank()) {
+                    AsyncImage(
+                        model = profileImage,
                         contentDescription = null,
-                        modifier = Modifier.size(60.dp),
-                        tint = MaterialTheme.colorScheme.primary
+                        modifier = Modifier.fillMaxSize().clip(CircleShape),
+                        contentScale = ContentScale.Crop
                     )
+                } else {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            Icons.Default.Person,
+                            contentDescription = null,
+                            modifier = Modifier.size(60.dp),
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
                 }
             }
             
@@ -84,7 +99,10 @@ fun ProfileScreen(
                 icon = Icons.Default.DarkMode,
                 label = stringResource(R.string.dark_mode),
                 trailing = {
-                    Switch(checked = false, onCheckedChange = {}) // Placeholder for theme toggle
+                    Switch(
+                        checked = darkMode,
+                        onCheckedChange = { settingsViewModel.setDarkMode(it) }
+                    )
                 }
             )
             

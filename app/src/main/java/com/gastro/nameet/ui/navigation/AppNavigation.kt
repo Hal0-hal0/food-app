@@ -173,6 +173,9 @@ fun AppNavHost(navController: NavHostController) {
             val category = backStackEntry.arguments?.getString(RouteConstants.CATEGORY_ARG) ?: ""
             SpecialtiesScreen(navController, category)
         }
+        composable(RouteConstants.ILONGGO_SPECIALTIES) {
+            IlonggoSpecialtiesScreen(navController)
+        }
         composable(RouteConstants.BOOKMARKS) {
             BookmarksScreen(navController)
         }

@@ -17,6 +17,7 @@ import com.gastro.nameet.repository.CommentRepository
 import com.gastro.nameet.repository.FoodBookmarkRepository
 import com.gastro.nameet.repository.FoodRepository
 import com.gastro.nameet.repository.PlaceRepository
+import com.gastro.nameet.repository.UserPreferencesRepository
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -119,6 +120,12 @@ object AppModule {
     @Provides
     fun provideFoodBookmarkRepository(foodBookmarkDao: FoodBookmarkDao): FoodBookmarkRepository {
         return FoodBookmarkRepository(foodBookmarkDao)
+    }
+
+    @Singleton
+    @Provides
+    fun provideUserPreferencesRepository(dataStore: DataStore<Preferences>): UserPreferencesRepository {
+        return UserPreferencesRepository(dataStore)
     }
 
     // DataStore

@@ -18,7 +18,15 @@ data class PlaceEntity(
     val category: String = "", // breakfast, lunch, dinner, dessert, snacks, soup
     val phone: String = "",
     val address: String = "",
-    val createdAt: Long = System.currentTimeMillis()
+    val createdAt: Long = System.currentTimeMillis(),
+    // Extended Google Places data
+    val googlePlaceId: String = "",
+    val photoUrls: String = "",
+    val website: String = "",
+    val openingHours: String = "",
+    val priceLevel: Int = -1,
+    val userRatingsTotal: Int = 0,
+    val businessStatus: String = ""
 )
 
 @Entity(tableName = "foods")

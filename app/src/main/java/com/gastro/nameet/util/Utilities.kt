@@ -68,6 +68,7 @@ object RouteConstants {
     const val MAPS = "maps"
     const val PLACE_DETAILS = "place_details"
     const val SPECIALTIES = "specialties"
+    const val ILONGGO_SPECIALTIES = "ilonggo_specialties"
     const val BOOKMARKS = "bookmarks"
     const val PROFILE = "profile"
     const val SETTINGS = "settings"

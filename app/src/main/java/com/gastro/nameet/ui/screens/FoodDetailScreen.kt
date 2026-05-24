@@ -176,12 +176,14 @@ fun FoodDetailScreen(
             // ── Find Establishments Button ──
             Button(
                 onClick = {
+                    // Don't restoreState: each navigation to parameterized
+                    // Maps must start from a clean MapsViewModel so a previous
+                    // polyline / locate target can't leak across screens.
                     navController.navigate(
                         "${RouteConstants.MAPS}?${RouteConstants.MAP_QUERY_ARG}=${Uri.encode(specialty.name)}&${RouteConstants.LOCATE_PLACE_ID_ARG}=${RouteConstants.NO_PLACE_ID}"
                     ) {
-                        popUpTo(RouteConstants.HOME) { saveState = true }
+                        popUpTo(RouteConstants.HOME)
                         launchSingleTop = true
-                        restoreState = true
                     }
                 },
                 modifier = Modifier

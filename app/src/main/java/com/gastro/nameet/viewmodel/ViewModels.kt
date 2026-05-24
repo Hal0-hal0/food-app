@@ -20,12 +20,16 @@ import com.google.android.gms.tasks.CancellationTokenSource
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.*
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.tasks.await
 import com.google.android.libraries.places.api.net.PlacesClient
 import com.google.android.libraries.places.api.model.Place.Field
 import com.google.android.libraries.places.api.model.CircularBounds
 import com.google.android.libraries.places.api.model.PhotoMetadata
 import com.google.android.libraries.places.api.net.FetchPhotoRequest
+import com.google.android.libraries.places.api.net.FetchPlaceRequest
 import com.google.android.libraries.places.api.net.SearchByTextRequest
 import com.google.android.gms.maps.model.LatLng as MapsLatLng
 import com.gastro.nameet.model.LatLng as ModelLatLng
@@ -37,6 +41,72 @@ import java.io.File
 import java.security.MessageDigest
 import javax.inject.Inject
 import javax.inject.Provider
+
+@HiltViewModel
+class SettingsViewModel @Inject constructor(
+    private val authRepository: AuthRepository,
+    private val userPreferencesRepository: com.gastro.nameet.repository.UserPreferencesRepository
+) : ViewModel() {
+
+    val darkMode: StateFlow<Boolean> = userPreferencesRepository.darkMode
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    private val _uiMessage = MutableStateFlow<String?>(null)
+    val uiMessage: StateFlow<String?> = _uiMessage.asStateFlow()
+
+    private val _isSaving = MutableStateFlow(false)
+    val isSaving: StateFlow<Boolean> = _isSaving.asStateFlow()
+
+    fun setDarkMode(enabled: Boolean) {
+        viewModelScope.launch {
+            userPreferencesRepository.setDarkMode(enabled)
+        }
+    }
+
+    fun updateProfile(id: Int, name: String, email: String, profileImageUrl: String) {
+        if (id <= 0) {
+            _uiMessage.value = "No active user"
+            return
+        }
+        viewModelScope.launch {
+            _isSaving.value = true
+            try {
+                authRepository.updateProfile(id, name.trim(), email.trim(), profileImageUrl)
+                _uiMessage.value = "Profile updated"
+            } catch (e: Exception) {
+                _uiMessage.value = "Could not update profile: ${e.message}"
+            } finally {
+                _isSaving.value = false
+            }
+        }
+    }
+
+    fun updatePassword(id: Int, current: String, new: String) {
+        if (id <= 0) {
+            _uiMessage.value = "No active user"
+            return
+        }
+        if (new.length < 6) {
+            _uiMessage.value = "New password must be at least 6 characters"
+            return
+        }
+        viewModelScope.launch {
+            _isSaving.value = true
+            try {
+                val ok = authRepository.updatePassword(id, current, new)
+                _uiMessage.value = if (ok) "Password updated" else "Current password is incorrect"
+            } catch (e: Exception) {
+                _uiMessage.value = "Could not update password: ${e.message}"
+            } finally {
+                _isSaving.value = false
+            }
+        }
+    }
+
+    fun clearMessage() {
+        _uiMessage.value = null
+    }
+}
 
 @HiltViewModel
 class AuthViewModel @Inject constructor(
@@ -108,14 +178,28 @@ class AuthViewModel @Inject constructor(
 
 @HiltViewModel
 class HomeViewModel @Inject constructor(
-    private val placeRepository: PlaceRepository
+    private val placeRepository: PlaceRepository,
+    private val authRepository: AuthRepository
 ) : ViewModel() {
-    
+
     private val _homeState = MutableStateFlow<HomeState>(HomeState())
     val homeState: StateFlow<HomeState> = _homeState.asStateFlow()
 
+    /** Cached full lists so we can filter locally without re-querying. */
+    private var allPlaces: List<Place> = emptyList()
+    private var allSpecialties: List<Specialty> = emptyList()
+
     init {
+        observeUser()
         seedDataAndLoad()
+    }
+
+    private fun observeUser() {
+        viewModelScope.launch {
+            authRepository.getLoggedInUser().collect { user ->
+                _homeState.update { it.copy(userName = user?.name.orEmpty()) }
+            }
+        }
     }
 
     private fun seedDataAndLoad() {
@@ -141,9 +225,8 @@ class HomeViewModel @Inject constructor(
                     }
                     placeRepository.insertPlaces(samplePlaces)
                 }
-                // Load specialty foods from the dataset
-                val specialties = FoodDataset.getSpecialties()
-                _homeState.update { it.copy(specialties = specialties) }
+                allSpecialties = FoodDataset.getSpecialties()
+                _homeState.update { it.copy(specialties = allSpecialties) }
                 loadPlaces()
             } catch (e: Exception) {
                 _homeState.update { it.copy(isLoading = false, error = e.message) }
@@ -154,40 +237,110 @@ class HomeViewModel @Inject constructor(
     private fun loadPlaces() {
         viewModelScope.launch {
             placeRepository.getAllPlaces().collect { places ->
-                val categories = mapOf(
-                    "Breakfast" to places.filter { it.category == "breakfast" },
-                    "Lunch" to places.filter { it.category == "lunch" },
-                    "Dinner" to places.filter { it.category == "dinner" },
-                    "Dessert" to places.filter { it.category == "dessert" },
-                    "Snacks" to places.filter { it.category == "snacks" },
-                    "Soup" to places.filter { it.category == "soup" }
-                )
-                _homeState.update { 
-                    it.copy(
-                        featuredPlaces = places.sortedByDescending { p -> p.rating }.take(5),
-                        categoryPlaces = categories,
-                        isLoading = false
-                    )
-                }
+                allPlaces = places
+                applyHomeState(_searchQuery.value)
             }
         }
     }
 
+    /**
+     * Builds the Home UI state from cached lists, applying any active search
+     * filter to BOTH places and specialties so the entire screen reacts to
+     * the query.
+     */
+    private fun applyHomeState(query: String) {
+        val q = query.trim()
+
+        val filteredPlaces = if (q.isBlank()) {
+            allPlaces
+        } else {
+            allPlaces.filter { p ->
+                p.name.contains(q, ignoreCase = true) ||
+                p.description.contains(q, ignoreCase = true) ||
+                p.category.contains(q, ignoreCase = true) ||
+                p.address.contains(q, ignoreCase = true)
+            }
+        }
+
+        val filteredSpecialties = if (q.isBlank()) {
+            allSpecialties
+        } else {
+            allSpecialties.filter { s ->
+                s.name.contains(q, ignoreCase = true) ||
+                s.description.contains(q, ignoreCase = true)
+            }
+        }
+
+        val categories = mapOf(
+            "Breakfast" to filteredPlaces.filter { it.category == "breakfast" },
+            "Lunch" to filteredPlaces.filter { it.category == "lunch" },
+            "Dinner" to filteredPlaces.filter { it.category == "dinner" },
+            "Dessert" to filteredPlaces.filter { it.category == "dessert" },
+            "Snacks" to filteredPlaces.filter { it.category == "snacks" },
+            "Soup" to filteredPlaces.filter { it.category == "soup" }
+        )
+
+        _homeState.update {
+            it.copy(
+                featuredPlaces = filteredPlaces.sortedByDescending { p -> p.rating }.take(10),
+                categoryPlaces = categories,
+                specialties = filteredSpecialties,
+                dailySuggestion = buildDailySuggestion(filteredPlaces),
+                isLoading = false
+            )
+        }
+    }
+
+    /**
+     * Picks a category and tagline based on the current local time so the
+     * Home suggestion section shifts through the day.
+     */
+    private fun buildDailySuggestion(places: List<Place>): DailySuggestion {
+        val hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
+        val (greeting, mealLabel, tagline, category) = when (hour) {
+            in 5..10 -> Quad("Good morning!", "Breakfast", "Start your day with something warm.", "breakfast")
+            in 11..13 -> Quad("Lunch time", "Lunch", "Filling Ilonggo classics to power your afternoon.", "lunch")
+            in 14..16 -> Quad("Merienda hour", "Snacks", "A little something to bridge the day.", "snacks")
+            in 17..21 -> Quad("Dinner is served", "Dinner", "Wind down with hearty local favorites.", "dinner")
+            else -> Quad("Late night cravings", "Soup", "Comforting soups perfect for late nights.", "soup")
+        }
+        return DailySuggestion(
+            greeting = greeting,
+            mealLabel = mealLabel,
+            tagline = tagline,
+            category = category,
+            places = places
+                .filter { it.category.equals(category, ignoreCase = true) }
+                .sortedByDescending { it.rating }
+                .take(5)
+        )
+    }
+
+    private data class Quad(val a: String, val b: String, val c: String, val d: String)
+
+    private val _searchQuery = MutableStateFlow("")
+    val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
+
+    private var searchJob: Job? = null
+
     fun searchPlaces(query: String) {
-        viewModelScope.launch {
-            _homeState.update { it.copy(isLoading = true) }
+        _searchQuery.value = query
+        searchJob?.cancel()
+        searchJob = viewModelScope.launch {
+            kotlinx.coroutines.delay(200)
             try {
-                if (query.isBlank()) {
-                    loadPlaces()
-                } else {
-                    placeRepository.searchPlaces(query).collect { results ->
-                        _homeState.update { it.copy(featuredPlaces = results, isLoading = false) }
-                    }
-                }
+                applyHomeState(query)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 _homeState.update { it.copy(isLoading = false, error = e.message) }
             }
         }
+    }
+
+    fun clearSearch() {
+        _searchQuery.value = ""
+        applyHomeState("")
     }
 
     fun getPlacesByCategory(category: String) {
@@ -195,7 +348,7 @@ class HomeViewModel @Inject constructor(
             _homeState.update { it.copy(isLoading = true) }
             try {
                 placeRepository.getPlacesByCategory(category).collect { results ->
-                    _homeState.update { 
+                    _homeState.update {
                         it.copy(
                             featuredPlaces = results,
                             isLoading = false
@@ -216,24 +369,58 @@ class HomeViewModel @Inject constructor(
 @HiltViewModel
 class BookmarkViewModel @Inject constructor(
     private val bookmarkRepository: BookmarkRepository,
-    private val placeRepository: PlaceRepository
+    private val placeRepository: PlaceRepository,
+    private val foodBookmarkRepository: FoodBookmarkRepository
 ) : ViewModel() {
-    
+
     private val _bookmarkState = MutableStateFlow<BookmarkState>(BookmarkState())
     val bookmarkState: StateFlow<BookmarkState> = _bookmarkState.asStateFlow()
 
+    /**
+     * Loads BOTH place bookmarks and specialty (food) bookmarks for the user
+     * and surfaces them as a single unified list, so a user who bookmarked an
+     * Ilonggo specialty from Home actually sees it in this screen.
+     */
     fun loadUserBookmarks(userId: String) {
         viewModelScope.launch {
             _bookmarkState.update { it.copy(isLoading = true) }
             try {
-                bookmarkRepository.getUserBookmarks(userId).collect { bookmarks ->
-                    // Load the actual Place objects for each bookmark
-                    val places = bookmarks.mapNotNull { bookmark ->
-                        placeRepository.getPlaceById(bookmark.placeId).firstOrNull()
+                combine(
+                    bookmarkRepository.getUserBookmarks(userId),
+                    foodBookmarkRepository.getUserBookmarks(userId)
+                ) { placeBookmarks, foodBookmarks ->
+                    val placeItems = placeBookmarks.mapNotNull { bm ->
+                        val place = placeRepository.getPlaceById(bm.placeId).firstOrNull()
+                            ?: return@mapNotNull null
+                        BookmarkItem(
+                            key = "place:${place.id}",
+                            title = place.name,
+                            subtitle = place.address.ifBlank { place.category },
+                            imageUrl = place.imageUrl,
+                            type = BookmarkType.PLACE,
+                            placeId = place.id,
+                            rating = place.rating,
+                            createdAt = bm.createdAt
+                        )
                     }
+                    val specialtyItems = foodBookmarks.mapNotNull { fb ->
+                        val specialty = FoodDataset.getSpecialtyById(fb.specialtyId)
+                            ?: return@mapNotNull null
+                        BookmarkItem(
+                            key = "specialty:${specialty.id}",
+                            title = specialty.name,
+                            subtitle = FoodDataset.categories[specialty.categoryId] ?: "Ilonggo specialty",
+                            imageUrl = specialty.imageUrl,
+                            type = BookmarkType.SPECIALTY,
+                            specialtyId = specialty.id,
+                            createdAt = fb.createdAt
+                        )
+                    }
+                    placeItems + specialtyItems
+                }.collect { items ->
                     _bookmarkState.update {
                         it.copy(
-                            bookmarks = sortBookmarks(places, it.sortOption),
+                            bookmarks = sortBookmarks(items, it.sortOption),
                             isLoading = false
                         )
                     }
@@ -253,18 +440,23 @@ class BookmarkViewModel @Inject constructor(
                     userId = userId
                 )
                 bookmarkRepository.insertBookmark(bookmark)
-                loadUserBookmarks(userId)
             } catch (e: Exception) {
                 _bookmarkState.update { it.copy(error = e.message) }
             }
         }
     }
 
-    fun removeBookmark(placeId: Int, userId: String) {
+    fun removeBookmark(item: BookmarkItem, userId: String) {
         viewModelScope.launch {
             try {
-                bookmarkRepository.removeBookmark(placeId, userId)
-                loadUserBookmarks(userId)
+                when (item.type) {
+                    BookmarkType.PLACE -> item.placeId?.let {
+                        bookmarkRepository.removeBookmark(it, userId)
+                    }
+                    BookmarkType.SPECIALTY -> item.specialtyId?.let {
+                        foodBookmarkRepository.removeBookmark(it, userId)
+                    }
+                }
             } catch (e: Exception) {
                 _bookmarkState.update { it.copy(error = e.message) }
             }
@@ -280,13 +472,13 @@ class BookmarkViewModel @Inject constructor(
         }
     }
 
-    private fun sortBookmarks(places: List<Place>, option: BookmarkSortOption): List<Place> {
+    private fun sortBookmarks(items: List<BookmarkItem>, option: BookmarkSortOption): List<BookmarkItem> {
         return when (option) {
-            BookmarkSortOption.NAME_ASC -> places.sortedBy { it.name }
-            BookmarkSortOption.RATING_HIGH -> places.sortedByDescending { it.rating }
-            BookmarkSortOption.RATING_LOW -> places.sortedBy { it.rating }
-            BookmarkSortOption.DATE_NEWEST -> places.sortedByDescending { it.createdAt }
-            BookmarkSortOption.DATE_OLDEST -> places.sortedBy { it.createdAt }
+            BookmarkSortOption.NAME_ASC -> items.sortedBy { it.title }
+            BookmarkSortOption.RATING_HIGH -> items.sortedByDescending { it.rating }
+            BookmarkSortOption.RATING_LOW -> items.sortedBy { it.rating }
+            BookmarkSortOption.DATE_NEWEST -> items.sortedByDescending { it.createdAt }
+            BookmarkSortOption.DATE_OLDEST -> items.sortedBy { it.createdAt }
         }
     }
 
@@ -331,31 +523,10 @@ class MapsViewModel @Inject constructor(
                 .debounce(500)
                 .distinctUntilChanged()
                 .flatMapLatest { query ->
-                    _mapState.update { it.copy(isLoading = true) }
+                    // Blank query: do not auto-load DB places (would show stale pins
+                    // before the user has searched). Return empty results.
                     if (query.isBlank()) {
-                        flow {
-                            var places = placeRepository.getAllPlaces().first()
-                            if (places.isEmpty()) {
-                                val samplePlaces = SampleData.getSamplePlaces().map { entity ->
-                                    Place(
-                                        id = entity.id,
-                                        name = entity.name,
-                                        description = entity.description,
-                                        latitude = entity.latitude,
-                                        longitude = entity.longitude,
-                                        imageUrl = entity.imageUrl,
-                                        rating = entity.rating,
-                                        category = entity.category,
-                                        phone = entity.phone,
-                                        address = entity.address,
-                                        createdAt = entity.createdAt
-                                    )
-                                }
-                                placeRepository.insertPlaces(samplePlaces)
-                                places = placeRepository.getAllPlaces().first()
-                            }
-                            emit(places)
-                        }
+                        flow { emit(emptyList<Place>()) }
                     } else {
                         flow {
                             try {
@@ -371,15 +542,18 @@ class MapsViewModel @Inject constructor(
                                     Field.ADDRESS,
                                     Field.RATING,
                                     Field.TYPES,
-                                    Field.PHOTO_METADATAS
+                                    Field.PHOTO_METADATAS,
+                                    Field.PRICE_LEVEL,
+                                    Field.USER_RATINGS_TOTAL,
+                                    Field.BUSINESS_STATUS
                                 )
 
                                 val iloiloCenter = MapsLatLng(Constants.ILOILO_LAT, Constants.ILOILO_LNG)
                                 val iloiloBounds = CircularBounds.newInstance(iloiloCenter, 15000.0) // 15km radius
-                                
+
                                 // Improve search by ensuring 'Iloilo' is in the query context
                                 val effectiveQuery = if (query.contains("Iloilo", ignoreCase = true)) query else "$query in Iloilo"
-                                
+
                                 val request = SearchByTextRequest.builder(effectiveQuery, placeFields)
                                     .setLocationBias(iloiloBounds)
                                     .setMaxResultCount(15)
@@ -387,15 +561,12 @@ class MapsViewModel @Inject constructor(
 
                                 val response = placesClientProvider.get().searchByText(request).await()
                                 val googlePlaces = response.places.mapIndexed { index, googlePlace ->
-                                    val photoUri = googlePlace.photoMetadatas
-                                        ?.firstOrNull()
-                                        ?.let { metadata ->
-                                            fetchPlacePhotoUri(
-                                                photoMetadata = metadata,
-                                                placeKey = googlePlace.id ?: googlePlace.name ?: index.toString()
-                                            )
-                                        }
-                                        .orEmpty()
+                                    val placeKey = googlePlace.id ?: googlePlace.name ?: index.toString()
+                                    val photos = googlePlace.photoMetadatas.orEmpty().take(5)
+                                    val photoUris = photos.mapIndexedNotNull { i, metadata ->
+                                        fetchPlacePhotoUri(metadata, "${placeKey}_$i")
+                                    }
+                                    val primaryUri = photoUris.firstOrNull().orEmpty()
 
                                     Place(
                                         id = googlePlace.id?.hashCode() ?: index,
@@ -403,11 +574,20 @@ class MapsViewModel @Inject constructor(
                                         description = googlePlace.types?.joinToString(", ") ?: "",
                                         latitude = googlePlace.latLng?.latitude ?: 0.0,
                                         longitude = googlePlace.latLng?.longitude ?: 0.0,
-                                        imageUrl = photoUri,
+                                        imageUrl = primaryUri,
                                         rating = googlePlace.rating?.toFloat() ?: 0f,
                                         category = googlePlace.types?.firstOrNull()?.name ?: "Food",
-                                        address = googlePlace.address ?: ""
+                                        address = googlePlace.address ?: "",
+                                        googlePlaceId = googlePlace.id.orEmpty(),
+                                        photoUrls = photoUris.joinToString("||"),
+                                        priceLevel = googlePlace.priceLevel ?: -1,
+                                        userRatingsTotal = googlePlace.userRatingsTotal ?: 0,
+                                        businessStatus = googlePlace.businessStatus?.name.orEmpty()
                                     )
+                                }
+                                // Cache the Google results to the DB so PlaceDetails can find them
+                                if (googlePlaces.isNotEmpty()) {
+                                    placeRepository.insertPlaces(googlePlaces)
                                 }
                                 emit(googlePlaces)
                             } catch (e: Exception) {
@@ -418,13 +598,18 @@ class MapsViewModel @Inject constructor(
                     }
                 }
                 .collect { results ->
+                    // Don't overwrite places while we're locating a specific place
+                    if (_mapState.value.locatePlaceId != null) {
+                        _loadingPill.value = null
+                        return@collect
+                    }
                     _mapState.update {
                         it.copy(
                             places = results,
                             isLoading = false,
                             loadingSource = LoadingSource.NONE,
-                            // Bug 2 fix: clear polylines when search results change
-                            polylines = emptyList()
+                            polylines = emptyList(),
+                            routeInfo = null
                         )
                     }
                     _loadingPill.value = null
@@ -434,13 +619,16 @@ class MapsViewModel @Inject constructor(
 
     fun onSearchQueryChange(query: String) {
         _searchQuery.value = query
-        // Bug 2 fix: clear polylines on any search change
         _mapState.update {
             it.copy(
-                isLoading = true,
-                loadingSource = LoadingSource.SEARCH_BOX,
+                isLoading = query.isNotBlank(),
+                loadingSource = if (query.isNotBlank()) LoadingSource.SEARCH_BOX else LoadingSource.NONE,
                 polylines = emptyList(),
-                routeInfo = null
+                routeInfo = null,
+                // Exit "locate mode" as soon as the user starts a new search
+                locatePlaceId = null,
+                // Blank query: clear pins immediately
+                places = if (query.isBlank()) emptyList() else it.places
             )
         }
         _loadingPill.value = null
@@ -458,7 +646,8 @@ class MapsViewModel @Inject constructor(
                 routeInfo = null,
                 isLoading = false,
                 loadingSource = LoadingSource.NONE,
-                isLocating = false
+                isLocating = false,
+                locatePlaceId = null
             )
         }
     }
@@ -469,9 +658,12 @@ class MapsViewModel @Inject constructor(
             _loadingPill.value = null
             _mapState.update {
                 it.copy(
-                    isLoading = true,
+                    isLoading = false,
                     loadingSource = LoadingSource.NONE,
-                    polylines = emptyList()
+                    polylines = emptyList(),
+                    routeInfo = null,
+                    locatePlaceId = null,
+                    places = emptyList()
                 )
             }
         } else {
@@ -481,7 +673,9 @@ class MapsViewModel @Inject constructor(
                 it.copy(
                     isLoading = true,
                     loadingSource = LoadingSource.PILL,
-                    polylines = emptyList()
+                    polylines = emptyList(),
+                    routeInfo = null,
+                    locatePlaceId = null
                 )
             }
         }
@@ -514,6 +708,56 @@ class MapsViewModel @Inject constructor(
     fun clearSelectedPlace() {
         bookmarkObserverJob?.cancel()
         _mapState.update { it.copy(selectedPlace = null, isSelectedPlaceBookmarked = false) }
+    }
+
+    /**
+     * Fetches richer details (extra photos, hours, website) for a place via the
+     * Google Places Details API and persists them so PlaceDetails can show them.
+     */
+    fun fetchExtendedDetailsForPlace(place: Place) {
+        if (!Constants.HAS_MAPS_API_KEY) return
+        val googleId = place.googlePlaceId
+        if (googleId.isBlank()) return
+        viewModelScope.launch {
+            try {
+                val fields = listOf(
+                    Field.ID,
+                    Field.NAME,
+                    Field.PHONE_NUMBER,
+                    Field.WEBSITE_URI,
+                    Field.OPENING_HOURS,
+                    Field.PHOTO_METADATAS,
+                    Field.PRICE_LEVEL,
+                    Field.USER_RATINGS_TOTAL,
+                    Field.BUSINESS_STATUS,
+                    Field.ADDRESS,
+                    Field.RATING
+                )
+                val request = FetchPlaceRequest.builder(googleId, fields).build()
+                val response = placesClientProvider.get().fetchPlace(request).await()
+                val gp = response.place
+                val photoMetas = gp.photoMetadatas.orEmpty().take(8)
+                val photoUris = photoMetas.mapIndexedNotNull { i, metadata ->
+                    fetchPlacePhotoUri(metadata, "${googleId}_d_$i")
+                }
+                val updated = place.copy(
+                    phone = gp.phoneNumber.orEmpty().ifBlank { place.phone },
+                    website = gp.websiteUri?.toString().orEmpty().ifBlank { place.website },
+                    openingHours = gp.openingHours?.weekdayText?.joinToString("||").orEmpty()
+                        .ifBlank { place.openingHours },
+                    photoUrls = if (photoUris.isNotEmpty()) photoUris.joinToString("||") else place.photoUrls,
+                    imageUrl = photoUris.firstOrNull().orEmpty().ifBlank { place.imageUrl },
+                    priceLevel = gp.priceLevel ?: place.priceLevel,
+                    userRatingsTotal = gp.userRatingsTotal ?: place.userRatingsTotal,
+                    businessStatus = gp.businessStatus?.name.orEmpty().ifBlank { place.businessStatus },
+                    rating = gp.rating?.toFloat() ?: place.rating,
+                    address = gp.address.orEmpty().ifBlank { place.address }
+                )
+                placeRepository.insertPlace(updated)
+            } catch (e: Exception) {
+                // Silent failure: details enrichment is best-effort.
+            }
+        }
     }
 
     private fun observeBookmarkStatus(placeId: Int) {
@@ -586,39 +830,51 @@ class MapsViewModel @Inject constructor(
     @SuppressLint("MissingPermission")
     fun fetchCurrentLocation() {
         viewModelScope.launch {
-            try {
-                val cancellationTokenSource = CancellationTokenSource()
-                val location = fusedLocationClient.getCurrentLocation(
-                    Priority.PRIORITY_HIGH_ACCURACY,
-                    cancellationTokenSource.token
-                ).await()
-                if (location != null) {
-                    val latLng = ModelLatLng(location.latitude, location.longitude)
-                    _mapState.update {
-                        it.copy(
-                            userLocation = latLng,
-                            locationPermissionGranted = true
-                        )
-                    }
+            fetchCurrentLocationInternal()
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    private suspend fun fetchCurrentLocationInternal(): ModelLatLng? {
+        return try {
+            val cancellationTokenSource = CancellationTokenSource()
+            val location = fusedLocationClient.getCurrentLocation(
+                Priority.PRIORITY_HIGH_ACCURACY,
+                cancellationTokenSource.token
+            ).await()
+            if (location != null) {
+                val latLng = ModelLatLng(location.latitude, location.longitude)
+                _mapState.update {
+                    it.copy(
+                        userLocation = latLng,
+                        locationPermissionGranted = true
+                    )
                 }
-            } catch (e: Exception) {
-                _mapState.update { it.copy(error = "Could not get location: ${e.message}") }
-            }
+                latLng
+            } else null
+        } catch (e: Exception) {
+            _mapState.update { it.copy(error = "Could not get location: ${e.message}") }
+            null
         }
     }
 
     fun setLocationPermissionGranted(granted: Boolean) {
+        val wasGranted = _mapState.value.locationPermissionGranted
         _mapState.update { it.copy(locationPermissionGranted = granted) }
+        // Auto-fetch location the moment we get permission so the polyline
+        // starts from the user's real position the first time they tap Locate
+        if (granted && !wasGranted && _mapState.value.userLocation == null) {
+            fetchCurrentLocation()
+        }
     }
 
     /**
      * Bug 1 fix: Uses the Google Directions API to get road-following route points
      * instead of drawing a straight line.
+     * Always tries to fetch a fresh user location if permission is granted so the
+     * polyline reliably starts from the user, not from a stale fallback.
      */
     fun drawRouteToPlace(destination: Place) {
-        val originLoc = _mapState.value.userLocation
-            ?: ModelLatLng(Constants.ILOILO_LAT, Constants.ILOILO_LNG)
-
         viewModelScope.launch {
             _mapState.update {
                 it.copy(
@@ -628,6 +884,17 @@ class MapsViewModel @Inject constructor(
                     routeInfo = null
                 )
             }
+
+            // Always refresh the user's location if we have permission so the
+            // origin of the polyline matches where the user actually is.
+            val originLoc = if (_mapState.value.locationPermissionGranted) {
+                fetchCurrentLocationInternal() ?: _mapState.value.userLocation
+                ?: ModelLatLng(Constants.ILOILO_LAT, Constants.ILOILO_LNG)
+            } else {
+                _mapState.value.userLocation
+                    ?: ModelLatLng(Constants.ILOILO_LAT, Constants.ILOILO_LNG)
+            }
+
             try {
                 if (!Constants.HAS_MAPS_API_KEY) {
                     drawStraightRoute(destination, originLoc)
@@ -747,16 +1014,28 @@ class MapsViewModel @Inject constructor(
 
     fun locatePlaceOnMap(placeId: Int, drawRoute: Boolean = false) {
         viewModelScope.launch {
-            _mapState.update { it.copy(isLocating = true) }
+            // Clear any pending search so its results don't overwrite our single pin
+            _searchQuery.value = ""
+            _mapState.update {
+                it.copy(
+                    isLocating = true,
+                    locatePlaceId = placeId,
+                    polylines = emptyList(),
+                    routeInfo = null,
+                    places = emptyList()
+                )
+            }
             val place = placeRepository.getPlaceById(placeId).firstOrNull()
             if (place != null) {
-                _mapState.update { 
+                _mapState.update {
                     it.copy(
                         places = listOf(place),
                         selectedPlace = place,
-                        isLocating = false
+                        isLocating = false,
+                        locatePlaceId = placeId
                     )
                 }
+                observeBookmarkStatus(placeId)
                 if (drawRoute) {
                     drawRouteToPlace(place)
                 }
@@ -768,6 +1047,41 @@ class MapsViewModel @Inject constructor(
 
     fun clearPolylines() {
         _mapState.update { it.copy(polylines = emptyList(), routeInfo = null) }
+    }
+
+    /** Called when navigating away from the map screen (e.g. into details). */
+    fun prepareForNavigation() {
+        _mapState.update {
+            it.copy(
+                polylines = emptyList(),
+                routeInfo = null,
+                selectedPlace = null
+            )
+        }
+    }
+
+    /**
+     * Aggressively resets every piece of map state that could survive a
+     * navigation back to this screen and contaminate a new "Find Near You"
+     * search (most importantly: a stale polyline and the locate-mode flag).
+     */
+    fun resetForNewSearch() {
+        bookmarkObserverJob?.cancel()
+        _searchQuery.value = ""
+        _loadingPill.value = null
+        _mapState.update {
+            it.copy(
+                places = emptyList(),
+                selectedPlace = null,
+                polylines = emptyList(),
+                routeInfo = null,
+                isLoading = false,
+                loadingSource = LoadingSource.NONE,
+                isLocating = false,
+                locatePlaceId = null,
+                isSelectedPlaceBookmarked = false
+            )
+        }
     }
 
     /** Feature: cycle through map types */
@@ -826,6 +1140,9 @@ class PlaceDetailsViewModel @Inject constructor(
     private val foodRepository: FoodRepository,
     private val commentRepository: CommentRepository,
     private val bookmarkRepository: BookmarkRepository,
+    @ApplicationContext private val context: Context,
+    private val placesClientProvider: Provider<PlacesClient>,
+    private val okHttpClient: OkHttpClient,
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
@@ -834,13 +1151,19 @@ class PlaceDetailsViewModel @Inject constructor(
     private val _uiState = MutableStateFlow<PlaceDetail?>(null)
     val uiState: StateFlow<PlaceDetail?> = _uiState.asStateFlow()
 
+    private val _googleReviews = MutableStateFlow<List<GoogleReview>>(emptyList())
+    private val _isEnriching = MutableStateFlow(false)
+    private val _isLoadingReviews = MutableStateFlow(false)
+
+    private var enrichmentTriggered = false
+
     init {
         loadPlaceDetails()
     }
 
     private fun loadPlaceDetails() {
         viewModelScope.launch {
-            combine(
+            val baseDetail = combine(
                 placeRepository.getPlaceById(placeId),
                 foodRepository.getFoodsByPlace(placeId),
                 commentRepository.getCommentsByPlace(placeId),
@@ -853,15 +1176,151 @@ class PlaceDetailsViewModel @Inject constructor(
                         foods = foods,
                         comments = comments,
                         isBookmarked = bookmark != null,
-                        averageRating = avgRating ?: 0f
+                        averageRating = if (avgRating != null && avgRating > 0f) avgRating else place.rating
                     )
                 } else {
                     null
                 }
+            }
+
+            combine(
+                baseDetail,
+                _googleReviews,
+                _isEnriching,
+                _isLoadingReviews
+            ) { detail, reviews, enriching, loadingReviews ->
+                detail?.copy(
+                    googleReviews = reviews,
+                    isEnrichingDetails = enriching,
+                    isLoadingReviews = loadingReviews
+                )
             }.collect { detail ->
                 _uiState.value = detail
+                if (!enrichmentTriggered && detail != null && detail.place.googlePlaceId.isNotBlank()) {
+                    enrichmentTriggered = true
+                    enrichFromGoogle(detail.place)
+                }
             }
         }
+    }
+
+    private fun enrichFromGoogle(place: Place) {
+        if (!Constants.HAS_MAPS_API_KEY) return
+        viewModelScope.launch {
+            _isEnriching.value = true
+            try {
+                val fields = listOf(
+                    Field.ID,
+                    Field.NAME,
+                    Field.PHONE_NUMBER,
+                    Field.WEBSITE_URI,
+                    Field.OPENING_HOURS,
+                    Field.PHOTO_METADATAS,
+                    Field.PRICE_LEVEL,
+                    Field.USER_RATINGS_TOTAL,
+                    Field.BUSINESS_STATUS,
+                    Field.ADDRESS,
+                    Field.RATING
+                )
+                val request = FetchPlaceRequest.builder(place.googlePlaceId, fields).build()
+                val response = placesClientProvider.get().fetchPlace(request).await()
+                val gp = response.place
+
+                val photoMetas = gp.photoMetadatas.orEmpty().take(8)
+                val photoUris = photoMetas.mapIndexedNotNull { i, metadata ->
+                    fetchPlacePhotoUri(metadata, "${place.googlePlaceId}_dv_$i")
+                }
+                val updated = place.copy(
+                    phone = gp.phoneNumber.orEmpty().ifBlank { place.phone },
+                    website = gp.websiteUri?.toString().orEmpty().ifBlank { place.website },
+                    openingHours = gp.openingHours?.weekdayText?.joinToString("||").orEmpty()
+                        .ifBlank { place.openingHours },
+                    photoUrls = if (photoUris.isNotEmpty()) photoUris.joinToString("||") else place.photoUrls,
+                    imageUrl = photoUris.firstOrNull().orEmpty().ifBlank { place.imageUrl },
+                    priceLevel = gp.priceLevel ?: place.priceLevel,
+                    userRatingsTotal = gp.userRatingsTotal ?: place.userRatingsTotal,
+                    businessStatus = gp.businessStatus?.name.orEmpty().ifBlank { place.businessStatus },
+                    rating = gp.rating?.toFloat() ?: place.rating,
+                    address = gp.address.orEmpty().ifBlank { place.address }
+                )
+                placeRepository.insertPlace(updated)
+            } catch (e: Exception) {
+                // best-effort
+            } finally {
+                _isEnriching.value = false
+            }
+            // Google's Places SDK doesn't expose reviews — fetch via legacy
+            // Place Details web service instead.
+            fetchReviewsViaWebService(place.googlePlaceId)
+        }
+    }
+
+    private suspend fun fetchReviewsViaWebService(googlePlaceId: String) {
+        if (!Constants.HAS_MAPS_API_KEY) return
+        _isLoadingReviews.value = true
+        try {
+            val url = "https://maps.googleapis.com/maps/api/place/details/json" +
+                    "?place_id=$googlePlaceId" +
+                    "&fields=reviews,rating,user_ratings_total" +
+                    "&key=${Constants.MAPS_API_KEY}"
+            val json = withContext(Dispatchers.IO) {
+                val request = Request.Builder().url(url).build()
+                okHttpClient.newCall(request).execute().body?.string().orEmpty()
+            }
+            if (json.isBlank()) return
+            val root = JSONObject(json)
+            val result = root.optJSONObject("result") ?: return
+            val reviewsArr = result.optJSONArray("reviews") ?: return
+            val parsed = mutableListOf<GoogleReview>()
+            for (i in 0 until reviewsArr.length()) {
+                val r = reviewsArr.getJSONObject(i)
+                parsed += GoogleReview(
+                    authorName = r.optString("author_name"),
+                    rating = r.optDouble("rating", 0.0).toFloat(),
+                    text = r.optString("text"),
+                    relativeTime = r.optString("relative_time_description"),
+                    profilePhotoUrl = r.optString("profile_photo_url")
+                )
+            }
+            _googleReviews.value = parsed
+        } catch (e: Exception) {
+            // best-effort
+        } finally {
+            _isLoadingReviews.value = false
+        }
+    }
+
+    private suspend fun fetchPlacePhotoUri(
+        photoMetadata: PhotoMetadata,
+        placeKey: String
+    ): String? {
+        return try {
+            val photoDir = File(context.cacheDir, "place_photos").apply { mkdirs() }
+            val photoFile = File(photoDir, "${placeKey.stableFileName()}.jpg")
+            if (photoFile.exists()) {
+                return Uri.fromFile(photoFile).toString()
+            }
+            val request = FetchPhotoRequest.builder(photoMetadata)
+                .setMaxWidth(800)
+                .setMaxHeight(500)
+                .build()
+            val bitmap = placesClientProvider.get().fetchPhoto(request).await().bitmap
+            withContext(Dispatchers.IO) {
+                photoFile.outputStream().use { stream ->
+                    bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 88, stream)
+                }
+            }
+            Uri.fromFile(photoFile).toString()
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    private fun String.stableFileName(): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+            .digest(toByteArray())
+            .joinToString("") { "%02x".format(it) }
+        return digest.take(24)
     }
 
     fun toggleBookmark() {

@@ -1,10 +1,15 @@
 package com.gastro.nameet.ui.screens
 
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -16,6 +21,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -23,17 +29,20 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
+import com.gastro.nameet.model.GoogleReview
+import com.gastro.nameet.model.Place
 import com.gastro.nameet.ui.theme.PrimaryOrange
 import com.gastro.nameet.util.RouteConstants
 import com.gastro.nameet.viewmodel.PlaceDetailsViewModel
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun PlaceDetailsScreen(
     navController: NavController,
     viewModel: PlaceDetailsViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val context = LocalContext.current
 
     Scaffold(
         topBar = {
@@ -58,27 +67,106 @@ fun PlaceDetailsScreen(
                             tint = if (uiState?.isBookmarked == true) PrimaryOrange else MaterialTheme.colorScheme.onSurface
                         )
                     }
-                }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    titleContentColor = MaterialTheme.colorScheme.onSurface,
+                    navigationIconContentColor = MaterialTheme.colorScheme.onSurface,
+                    actionIconContentColor = MaterialTheme.colorScheme.onSurface
+                )
             )
         }
     ) { paddingValues ->
         uiState?.let { state ->
+            val photos = state.place.photos().ifEmpty {
+                if (state.place.imageUrl.isNotBlank()) listOf(state.place.imageUrl) else emptyList()
+            }
             LazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(paddingValues)
             ) {
-                // ── Hero Image ──
-                item {
-                    if (state.place.imageUrl.isNotBlank()) {
-                        AsyncImage(
-                            model = state.place.imageUrl,
-                            contentDescription = state.place.name,
+                // Banner-style "loading more details" indicator while we're
+                // pulling Google Place Details extras.
+                if (state.isEnrichingDetails) {
+                    item {
+                        Surface(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(260.dp),
-                            contentScale = ContentScale.Crop
-                        )
+                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                            shape = RoundedCornerShape(10.dp),
+                            color = PrimaryOrange.copy(alpha = 0.12f)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(16.dp),
+                                    strokeWidth = 2.dp,
+                                    color = PrimaryOrange
+                                )
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Text(
+                                    text = "Loading photos, hours and contact info…",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = PrimaryOrange
+                                )
+                            }
+                        }
+                    }
+                }
+                // ── Hero image carousel ──
+                item {
+                    if (photos.isNotEmpty()) {
+                        val pagerState = rememberPagerState(pageCount = { photos.size })
+                        Box(modifier = Modifier.fillMaxWidth().height(260.dp)) {
+                            HorizontalPager(
+                                state = pagerState,
+                                modifier = Modifier.fillMaxSize()
+                            ) { page ->
+                                AsyncImage(
+                                    model = photos[page],
+                                    contentDescription = state.place.name,
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentScale = ContentScale.Crop
+                                )
+                            }
+                            if (photos.size > 1) {
+                                Row(
+                                    modifier = Modifier
+                                        .align(Alignment.BottomCenter)
+                                        .padding(bottom = 12.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    repeat(photos.size) { i ->
+                                        Box(
+                                            modifier = Modifier
+                                                .size(if (i == pagerState.currentPage) 10.dp else 8.dp)
+                                                .clip(CircleShape)
+                                                .background(
+                                                    if (i == pagerState.currentPage) PrimaryOrange
+                                                    else Color.White.copy(alpha = 0.6f)
+                                                )
+                                        )
+                                    }
+                                }
+                                Surface(
+                                    modifier = Modifier
+                                        .align(Alignment.TopEnd)
+                                        .padding(12.dp),
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = Color.Black.copy(alpha = 0.55f)
+                                ) {
+                                    Text(
+                                        text = "${pagerState.currentPage + 1} / ${photos.size}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = Color.White,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                    )
+                                }
+                            }
+                        }
                     } else {
                         Box(
                             modifier = Modifier
@@ -97,13 +185,35 @@ fun PlaceDetailsScreen(
                     }
                 }
 
+                // Photo thumbnail strip (additional images)
+                if (photos.size > 1) {
+                    item {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        LazyRow(
+                            modifier = Modifier.fillMaxWidth(),
+                            contentPadding = PaddingValues(horizontal = 16.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            items(photos) { photo ->
+                                AsyncImage(
+                                    model = photo,
+                                    contentDescription = null,
+                                    modifier = Modifier
+                                        .size(70.dp)
+                                        .clip(RoundedCornerShape(8.dp)),
+                                    contentScale = ContentScale.Crop
+                                )
+                            }
+                        }
+                    }
+                }
+
                 // ── Info Card ──
                 item {
                     Card(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 16.dp)
-                            .offset(y = (-24).dp),
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
                         shape = RoundedCornerShape(20.dp),
                         elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
@@ -121,10 +231,11 @@ fun PlaceDetailsScreen(
                                     fontWeight = FontWeight.Bold,
                                     modifier = Modifier.weight(1f)
                                 )
-                                if (state.place.rating > 0f || state.averageRating > 0f) {
+                                val displayRating = if (state.averageRating > 0f) state.averageRating else state.place.rating
+                                if (displayRating > 0f) {
                                     Surface(
                                         shape = RoundedCornerShape(12.dp),
-                                        color = PrimaryOrange.copy(alpha = 0.1f)
+                                        color = PrimaryOrange.copy(alpha = 0.12f)
                                     ) {
                                         Row(
                                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
@@ -137,7 +248,6 @@ fun PlaceDetailsScreen(
                                                 modifier = Modifier.size(18.dp)
                                             )
                                             Spacer(modifier = Modifier.width(4.dp))
-                                            val displayRating = if (state.averageRating > 0f) state.averageRating else state.place.rating
                                             Text(
                                                 text = String.format("%.1f", displayRating),
                                                 style = MaterialTheme.typography.bodyMedium,
@@ -149,19 +259,62 @@ fun PlaceDetailsScreen(
                                 }
                             }
 
-                            // Category chip
-                            if (state.place.category.isNotBlank()) {
-                                Spacer(modifier = Modifier.height(8.dp))
-                                Surface(
-                                    shape = RoundedCornerShape(8.dp),
-                                    color = MaterialTheme.colorScheme.primaryContainer
-                                ) {
-                                    Text(
-                                        text = state.place.category.replaceFirstChar { it.uppercase() },
-                                        style = MaterialTheme.typography.labelMedium,
-                                        color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                                    )
+                            if (state.place.userRatingsTotal > 0) {
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "${state.place.userRatingsTotal} Google ratings",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+
+                            // Category and price level chips
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                if (state.place.category.isNotBlank()) {
+                                    Surface(
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = PrimaryOrange.copy(alpha = 0.15f)
+                                    ) {
+                                        Text(
+                                            text = state.place.category.replaceFirstChar { it.uppercase() },
+                                            style = MaterialTheme.typography.labelMedium,
+                                            color = PrimaryOrange,
+                                            fontWeight = FontWeight.SemiBold,
+                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                                        )
+                                    }
+                                }
+                                if (state.place.priceLevel in 0..4) {
+                                    Surface(
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = PrimaryOrange.copy(alpha = 0.15f)
+                                    ) {
+                                        Text(
+                                            text = "$".repeat((state.place.priceLevel).coerceAtLeast(1)),
+                                            style = MaterialTheme.typography.labelMedium,
+                                            color = PrimaryOrange,
+                                            fontWeight = FontWeight.SemiBold,
+                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                                        )
+                                    }
+                                }
+                                if (state.place.businessStatus.isNotBlank()) {
+                                    Surface(
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = PrimaryOrange.copy(alpha = 0.15f)
+                                    ) {
+                                        Text(
+                                            text = state.place.businessStatus
+                                                .replace('_', ' ')
+                                                .lowercase()
+                                                .replaceFirstChar { it.uppercase() },
+                                            style = MaterialTheme.typography.labelMedium,
+                                            color = PrimaryOrange,
+                                            fontWeight = FontWeight.SemiBold,
+                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                                        )
+                                    }
                                 }
                             }
 
@@ -176,14 +329,6 @@ fun PlaceDetailsScreen(
                                     lineHeight = 22.sp
                                 )
                                 Spacer(modifier = Modifier.height(16.dp))
-                            } else {
-                                Text(
-                                    text = "Description: NA",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                                    lineHeight = 22.sp
-                                )
-                                Spacer(modifier = Modifier.height(16.dp))
                             }
 
                             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
@@ -193,18 +338,63 @@ fun PlaceDetailsScreen(
                             InfoRow(
                                 icon = Icons.Default.LocationOn,
                                 label = "Address",
-                                value = if (state.place.address.isNotBlank()) state.place.address else "NA"
+                                value = if (state.place.address.isNotBlank()) state.place.address else "Not available"
                             )
                             InfoRow(
                                 icon = Icons.Default.Phone,
                                 label = "Phone",
-                                value = if (state.place.phone.isNotBlank()) state.place.phone else "NA"
+                                value = if (state.place.phone.isNotBlank()) state.place.phone else "Not available",
+                                onClick = if (state.place.phone.isNotBlank()) {
+                                    {
+                                        context.startActivity(
+                                            Intent(Intent.ACTION_DIAL, Uri.parse("tel:${state.place.phone}"))
+                                        )
+                                    }
+                                } else null
                             )
-                            InfoRow(
-                                icon = Icons.Default.Info,
-                                label = "Status",
-                                value = "Open Now" // Static for UI display as requested
-                            )
+                            if (state.place.website.isNotBlank()) {
+                                InfoRow(
+                                    icon = Icons.Default.Language,
+                                    label = "Website",
+                                    value = state.place.website,
+                                    onClick = {
+                                        context.startActivity(
+                                            Intent(Intent.ACTION_VIEW, Uri.parse(state.place.website))
+                                        )
+                                    }
+                                )
+                            }
+
+                            val hours = state.place.openingHoursList()
+                            if (hours.isNotEmpty()) {
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                                    verticalAlignment = Alignment.Top
+                                ) {
+                                    Icon(
+                                        Icons.Default.Schedule,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(20.dp),
+                                        tint = PrimaryOrange
+                                    )
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Column {
+                                        Text(
+                                            text = "Opening Hours",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                        Spacer(modifier = Modifier.height(2.dp))
+                                        hours.forEach { line ->
+                                            Text(
+                                                text = line,
+                                                style = MaterialTheme.typography.bodySmall
+                                            )
+                                        }
+                                    }
+                                }
+                            }
 
                             Spacer(modifier = Modifier.height(16.dp))
 
@@ -220,7 +410,10 @@ fun PlaceDetailsScreen(
                                 },
                                 modifier = Modifier.fillMaxWidth(),
                                 shape = RoundedCornerShape(12.dp),
-                                colors = ButtonDefaults.buttonColors(containerColor = PrimaryOrange)
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = PrimaryOrange,
+                                    contentColor = Color.White
+                                )
                             ) {
                                 Icon(Icons.Default.Map, contentDescription = null)
                                 Spacer(modifier = Modifier.width(8.dp))
@@ -285,6 +478,7 @@ fun PlaceDetailsScreen(
                 }
 
                 // ── Reviews Section ──
+                val totalReviews = state.comments.size + state.googleReviews.size
                 item {
                     Spacer(modifier = Modifier.height(16.dp))
                     Row(
@@ -294,21 +488,58 @@ fun PlaceDetailsScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            text = "Reviews",
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            text = "${state.comments.size} reviews",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "Reviews",
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold
+                            )
+                            if (state.isLoadingReviews) {
+                                Spacer(modifier = Modifier.width(10.dp))
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(16.dp),
+                                    strokeWidth = 2.dp,
+                                    color = PrimaryOrange
+                                )
+                            }
+                        }
+                        if (!state.isLoadingReviews) {
+                            Text(
+                                text = "$totalReviews reviews",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        } else {
+                            Text(
+                                text = "Loading…",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = PrimaryOrange
+                            )
+                        }
                     }
                     Spacer(modifier = Modifier.height(8.dp))
                 }
 
-                if (state.comments.isEmpty()) {
+                if (state.isLoadingReviews && totalReviews == 0) {
+                    item {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(32.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                CircularProgressIndicator(color = PrimaryOrange)
+                                Spacer(modifier = Modifier.height(12.dp))
+                                Text(
+                                    text = "Fetching reviews…",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                } else if (totalReviews == 0) {
                     item {
                         Box(
                             modifier = Modifier
@@ -327,12 +558,15 @@ fun PlaceDetailsScreen(
                                 Text(
                                     text = "No reviews yet",
                                     style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                                 )
                             }
                         }
                     }
                 } else {
+                    items(state.googleReviews) { review ->
+                        GoogleReviewCard(review)
+                    }
                     items(state.comments) { comment ->
                         Card(
                             modifier = Modifier
@@ -346,18 +580,17 @@ fun PlaceDetailsScreen(
                                     verticalAlignment = Alignment.CenterVertically,
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
-                                    // Avatar
                                     Surface(
                                         modifier = Modifier.size(36.dp),
                                         shape = CircleShape,
-                                        color = MaterialTheme.colorScheme.primaryContainer
+                                        color = PrimaryOrange.copy(alpha = 0.2f)
                                     ) {
                                         Box(contentAlignment = Alignment.Center) {
                                             Text(
                                                 text = comment.userName.firstOrNull()?.uppercase() ?: "?",
                                                 style = MaterialTheme.typography.bodyMedium,
                                                 fontWeight = FontWeight.Bold,
-                                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                                                color = PrimaryOrange
                                             )
                                         }
                                     }
@@ -369,7 +602,6 @@ fun PlaceDetailsScreen(
                                             fontWeight = FontWeight.SemiBold
                                         )
                                     }
-                                    // Rating stars
                                     if (comment.rating > 0f) {
                                         Row {
                                             repeat(5) { i ->
@@ -398,7 +630,7 @@ fun PlaceDetailsScreen(
             }
         } ?: Box(modifier = Modifier.fillMaxSize().padding(paddingValues), contentAlignment = Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                CircularProgressIndicator()
+                CircularProgressIndicator(color = PrimaryOrange)
                 Spacer(modifier = Modifier.height(16.dp))
                 Text(
                     "Loading details...",
@@ -411,25 +643,110 @@ fun PlaceDetailsScreen(
 }
 
 @Composable
+private fun GoogleReviewCard(review: GoogleReview) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                if (review.profilePhotoUrl.isNotBlank()) {
+                    AsyncImage(
+                        model = review.profilePhotoUrl,
+                        contentDescription = null,
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(CircleShape),
+                        contentScale = ContentScale.Crop
+                    )
+                } else {
+                    Surface(
+                        modifier = Modifier.size(36.dp),
+                        shape = CircleShape,
+                        color = PrimaryOrange.copy(alpha = 0.2f)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Text(
+                                text = review.authorName.firstOrNull()?.uppercase() ?: "G",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = PrimaryOrange
+                            )
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = review.authorName.ifBlank { "Google User" },
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    if (review.relativeTime.isNotBlank()) {
+                        Text(
+                            text = review.relativeTime,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+                if (review.rating > 0f) {
+                    Row {
+                        repeat(5) { i ->
+                            Icon(
+                                Icons.Default.Star,
+                                contentDescription = null,
+                                modifier = Modifier.size(14.dp),
+                                tint = if (i < review.rating) PrimaryOrange else Color.Gray.copy(alpha = 0.3f)
+                            )
+                        }
+                    }
+                }
+            }
+            if (review.text.isNotBlank()) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = review.text,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun InfoRow(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     label: String,
-    value: String
+    value: String,
+    onClick: (() -> Unit)? = null
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 6.dp),
+            .padding(vertical = 6.dp)
+            .let { if (onClick != null) it.clip(RoundedCornerShape(8.dp)) else it },
         verticalAlignment = Alignment.Top
     ) {
         Icon(
             icon,
             contentDescription = null,
             modifier = Modifier.size(20.dp),
-            tint = MaterialTheme.colorScheme.primary
+            tint = PrimaryOrange
         )
         Spacer(modifier = Modifier.width(12.dp))
-        Column {
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .let { if (onClick != null) it.clickable(onClick = onClick) else it }
+        ) {
             Text(
                 text = label,
                 style = MaterialTheme.typography.labelSmall,
@@ -437,7 +754,8 @@ private fun InfoRow(
             )
             Text(
                 text = value,
-                style = MaterialTheme.typography.bodyMedium
+                style = MaterialTheme.typography.bodyMedium,
+                color = if (onClick != null) PrimaryOrange else MaterialTheme.colorScheme.onSurface
             )
         }
     }
