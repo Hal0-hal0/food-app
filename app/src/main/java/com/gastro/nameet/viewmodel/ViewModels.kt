@@ -370,54 +370,70 @@ class HomeViewModel @Inject constructor(
 class BookmarkViewModel @Inject constructor(
     private val bookmarkRepository: BookmarkRepository,
     private val placeRepository: PlaceRepository,
-    private val foodBookmarkRepository: FoodBookmarkRepository
+    private val foodBookmarkRepository: FoodBookmarkRepository,
+    private val authRepository: AuthRepository
 ) : ViewModel() {
 
     private val _bookmarkState = MutableStateFlow<BookmarkState>(BookmarkState())
     val bookmarkState: StateFlow<BookmarkState> = _bookmarkState.asStateFlow()
 
+    init {
+        observeUserBookmarks()
+    }
+
     /**
-     * Loads BOTH place bookmarks and specialty (food) bookmarks for the user
-     * and surfaces them as a single unified list, so a user who bookmarked an
-     * Ilonggo specialty from Home actually sees it in this screen.
+     * Reactively loads BOTH place bookmarks and specialty bookmarks scoped to
+     * whoever is currently logged in. Re-subscribes automatically on
+     * login/logout so a brand-new user never sees the previous user's data.
      */
-    fun loadUserBookmarks(userId: String) {
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private fun observeUserBookmarks() {
         viewModelScope.launch {
-            _bookmarkState.update { it.copy(isLoading = true) }
-            try {
-                combine(
-                    bookmarkRepository.getUserBookmarks(userId),
-                    foodBookmarkRepository.getUserBookmarks(userId)
-                ) { placeBookmarks, foodBookmarks ->
-                    val placeItems = placeBookmarks.mapNotNull { bm ->
-                        val place = placeRepository.getPlaceById(bm.placeId).firstOrNull()
-                            ?: return@mapNotNull null
-                        BookmarkItem(
-                            key = "place:${place.id}",
-                            title = place.name,
-                            subtitle = place.address.ifBlank { place.category },
-                            imageUrl = place.imageUrl,
-                            type = BookmarkType.PLACE,
-                            placeId = place.id,
-                            rating = place.rating,
-                            createdAt = bm.createdAt
-                        )
+            authRepository.currentUserIdFlow()
+                .flatMapLatest { uid ->
+                    if (uid.isBlank()) {
+                        kotlinx.coroutines.flow.flowOf(emptyList())
+                    } else {
+                        combine(
+                            bookmarkRepository.getUserBookmarks(uid),
+                            foodBookmarkRepository.getUserBookmarks(uid)
+                        ) { placeBookmarks, foodBookmarks ->
+                            val placeItems = placeBookmarks.mapNotNull { bm ->
+                                val place = placeRepository.getPlaceById(bm.placeId).firstOrNull()
+                                    ?: return@mapNotNull null
+                                BookmarkItem(
+                                    key = "place:${place.id}",
+                                    title = place.name,
+                                    subtitle = place.address.ifBlank { place.category },
+                                    imageUrl = place.imageUrl,
+                                    type = BookmarkType.PLACE,
+                                    placeId = place.id,
+                                    rating = place.rating,
+                                    createdAt = bm.createdAt
+                                )
+                            }
+                            val specialtyItems = foodBookmarks.mapNotNull { fb ->
+                                val specialty = FoodDataset.getSpecialtyById(fb.specialtyId)
+                                    ?: return@mapNotNull null
+                                BookmarkItem(
+                                    key = "specialty:${specialty.id}",
+                                    title = specialty.name,
+                                    subtitle = FoodDataset.categories[specialty.categoryId] ?: "Ilonggo specialty",
+                                    imageUrl = specialty.imageUrl,
+                                    type = BookmarkType.SPECIALTY,
+                                    specialtyId = specialty.id,
+                                    createdAt = fb.createdAt
+                                )
+                            }
+                            placeItems + specialtyItems
+                        }
                     }
-                    val specialtyItems = foodBookmarks.mapNotNull { fb ->
-                        val specialty = FoodDataset.getSpecialtyById(fb.specialtyId)
-                            ?: return@mapNotNull null
-                        BookmarkItem(
-                            key = "specialty:${specialty.id}",
-                            title = specialty.name,
-                            subtitle = FoodDataset.categories[specialty.categoryId] ?: "Ilonggo specialty",
-                            imageUrl = specialty.imageUrl,
-                            type = BookmarkType.SPECIALTY,
-                            specialtyId = specialty.id,
-                            createdAt = fb.createdAt
-                        )
-                    }
-                    placeItems + specialtyItems
-                }.collect { items ->
+                }
+                .catch { e ->
+                    if (e is CancellationException) throw e
+                    _bookmarkState.update { it.copy(isLoading = false, error = e.message) }
+                }
+                .collect { items ->
                     _bookmarkState.update {
                         it.copy(
                             bookmarks = sortBookmarks(items, it.sortOption),
@@ -425,36 +441,41 @@ class BookmarkViewModel @Inject constructor(
                         )
                     }
                 }
-            } catch (e: Exception) {
-                _bookmarkState.update { it.copy(isLoading = false, error = e.message) }
-            }
         }
     }
 
-    fun addBookmark(placeId: Int, userId: String) {
+    /** No-op kept for backwards compatibility with callers — data is now
+     *  loaded reactively from the auth state. */
+    fun loadUserBookmarks(userId: String) {
+        // intentionally empty
+    }
+
+    fun addBookmark(placeId: Int) {
         viewModelScope.launch {
             try {
-                val bookmark = Bookmark(
-                    id = 0,
-                    placeId = placeId,
-                    userId = userId
-                )
-                bookmarkRepository.insertBookmark(bookmark)
+                val uid = authRepository.currentUserId()
+                if (uid.isBlank()) {
+                    _bookmarkState.update { it.copy(error = "Please log in") }
+                    return@launch
+                }
+                bookmarkRepository.insertBookmark(Bookmark(id = 0, placeId = placeId, userId = uid))
             } catch (e: Exception) {
                 _bookmarkState.update { it.copy(error = e.message) }
             }
         }
     }
 
-    fun removeBookmark(item: BookmarkItem, userId: String) {
+    fun removeBookmark(item: BookmarkItem) {
         viewModelScope.launch {
             try {
+                val uid = authRepository.currentUserId()
+                if (uid.isBlank()) return@launch
                 when (item.type) {
                     BookmarkType.PLACE -> item.placeId?.let {
-                        bookmarkRepository.removeBookmark(it, userId)
+                        bookmarkRepository.removeBookmark(it, uid)
                     }
                     BookmarkType.SPECIALTY -> item.specialtyId?.let {
-                        foodBookmarkRepository.removeBookmark(it, userId)
+                        foodBookmarkRepository.removeBookmark(it, uid)
                     }
                 }
             } catch (e: Exception) {
@@ -495,6 +516,7 @@ class BookmarkViewModel @Inject constructor(
 class MapsViewModel @Inject constructor(
     private val placeRepository: PlaceRepository,
     private val bookmarkRepository: BookmarkRepository,
+    private val authRepository: AuthRepository,
     @ApplicationContext private val context: Context,
     private val placesClientProvider: Provider<PlacesClient>,
     private val fusedLocationClient: FusedLocationProviderClient,
@@ -590,9 +612,20 @@ class MapsViewModel @Inject constructor(
                                     placeRepository.insertPlaces(googlePlaces)
                                 }
                                 emit(googlePlaces)
+                            } catch (e: CancellationException) {
+                                // flatMapLatest cancels the inner flow on every
+                                // new keystroke — that's not a user-facing error.
+                                throw e
                             } catch (e: Exception) {
                                 _mapState.update { it.copy(error = "Search issue: ${e.message}") }
-                                placeRepository.searchPlaces(query).collect { emit(it) }
+                                try {
+                                    placeRepository.searchPlaces(query).collect { emit(it) }
+                                } catch (ce: CancellationException) {
+                                    throw ce
+                                } catch (_: Exception) {
+                                    // local fallback also failed — leave the
+                                    // snackbar above as the only signal
+                                }
                             }
                         }
                     }
@@ -760,12 +793,20 @@ class MapsViewModel @Inject constructor(
         }
     }
 
+    @OptIn(ExperimentalCoroutinesApi::class)
     private fun observeBookmarkStatus(placeId: Int) {
         bookmarkObserverJob?.cancel()
         bookmarkObserverJob = viewModelScope.launch {
-            bookmarkRepository.isBookmarked(placeId, "current_user").collect { bookmark ->
-                _mapState.update { it.copy(isSelectedPlaceBookmarked = bookmark != null) }
-            }
+            // React to user changes too: if someone logs out/in, the
+            // bookmarked-state for the selected place must refresh.
+            authRepository.currentUserIdFlow()
+                .flatMapLatest { uid ->
+                    if (uid.isBlank()) kotlinx.coroutines.flow.flowOf(null)
+                    else bookmarkRepository.isBookmarked(placeId, uid)
+                }
+                .collect { bookmark ->
+                    _mapState.update { it.copy(isSelectedPlaceBookmarked = bookmark != null) }
+                }
         }
     }
 
@@ -777,9 +818,14 @@ class MapsViewModel @Inject constructor(
     fun toggleBookmark(placeId: Int) {
         viewModelScope.launch {
             try {
+                val uid = authRepository.currentUserId()
+                if (uid.isBlank()) {
+                    _mapState.update { it.copy(error = "Please log in to bookmark") }
+                    return@launch
+                }
                 val isBookmarked = _mapState.value.isSelectedPlaceBookmarked
                 if (isBookmarked) {
-                    bookmarkRepository.removeBookmark(placeId, "current_user")
+                    bookmarkRepository.removeBookmark(placeId, uid)
                 } else {
                     // Ensure the place exists in the DB before bookmarking (FK constraint)
                     val existingPlace = placeRepository.getPlaceById(placeId).firstOrNull()
@@ -791,7 +837,7 @@ class MapsViewModel @Inject constructor(
                         }
                     }
                     bookmarkRepository.insertBookmark(
-                        Bookmark(id = 0, placeId = placeId, userId = "current_user")
+                        Bookmark(id = 0, placeId = placeId, userId = uid)
                     )
                 }
                 // The bookmark observer flow will automatically update the state
@@ -1140,6 +1186,7 @@ class PlaceDetailsViewModel @Inject constructor(
     private val foodRepository: FoodRepository,
     private val commentRepository: CommentRepository,
     private val bookmarkRepository: BookmarkRepository,
+    private val authRepository: AuthRepository,
     @ApplicationContext private val context: Context,
     private val placesClientProvider: Provider<PlacesClient>,
     private val okHttpClient: OkHttpClient,
@@ -1161,14 +1208,23 @@ class PlaceDetailsViewModel @Inject constructor(
         loadPlaceDetails()
     }
 
+    @OptIn(ExperimentalCoroutinesApi::class)
     private fun loadPlaceDetails() {
         viewModelScope.launch {
+            // The bookmarked-state must follow the active user, so we wire
+            // isBookmarked to currentUserIdFlow and re-subscribe on change.
+            val bookmarkFlow = authRepository.currentUserIdFlow()
+                .flatMapLatest { uid ->
+                    if (uid.isBlank()) kotlinx.coroutines.flow.flowOf(null)
+                    else bookmarkRepository.isBookmarked(placeId, uid)
+                }
+
             val baseDetail = combine(
                 placeRepository.getPlaceById(placeId),
                 foodRepository.getFoodsByPlace(placeId),
                 commentRepository.getCommentsByPlace(placeId),
                 commentRepository.getAverageRating(placeId),
-                bookmarkRepository.isBookmarked(placeId, "current_user")
+                bookmarkFlow
             ) { place, foods, comments, avgRating, bookmark ->
                 if (place != null) {
                     PlaceDetail(
@@ -1326,13 +1382,15 @@ class PlaceDetailsViewModel @Inject constructor(
     fun toggleBookmark() {
         viewModelScope.launch {
             val current = _uiState.value ?: return@launch
+            val uid = authRepository.currentUserId()
+            if (uid.isBlank()) return@launch
             if (current.isBookmarked) {
-                bookmarkRepository.removeBookmark(placeId, "current_user")
+                bookmarkRepository.removeBookmark(placeId, uid)
             } else {
                 val bookmark = Bookmark(
                     id = 0,
                     placeId = placeId,
-                    userId = "current_user"
+                    userId = uid
                 )
                 bookmarkRepository.insertBookmark(bookmark)
             }
@@ -1347,6 +1405,7 @@ class PlaceDetailsViewModel @Inject constructor(
 @HiltViewModel
 class FoodDetailViewModel @Inject constructor(
     private val foodBookmarkRepository: FoodBookmarkRepository,
+    private val authRepository: AuthRepository,
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
@@ -1361,21 +1420,29 @@ class FoodDetailViewModel @Inject constructor(
         observeBookmark()
     }
 
+    @OptIn(ExperimentalCoroutinesApi::class)
     private fun observeBookmark() {
         viewModelScope.launch {
-            foodBookmarkRepository.isBookmarked(foodId, "current_user").collect { bookmark ->
-                _isBookmarked.value = bookmark != null
-            }
+            authRepository.currentUserIdFlow()
+                .flatMapLatest { uid ->
+                    if (uid.isBlank()) kotlinx.coroutines.flow.flowOf(null)
+                    else foodBookmarkRepository.isBookmarked(foodId, uid)
+                }
+                .collect { bookmark ->
+                    _isBookmarked.value = bookmark != null
+                }
         }
     }
 
     fun toggleBookmark() {
         viewModelScope.launch {
+            val uid = authRepository.currentUserId()
+            if (uid.isBlank()) return@launch
             if (_isBookmarked.value) {
-                foodBookmarkRepository.removeBookmark(foodId, "current_user")
+                foodBookmarkRepository.removeBookmark(foodId, uid)
             } else {
                 foodBookmarkRepository.insertBookmark(
-                    FoodBookmark(specialtyId = foodId, userId = "current_user")
+                    FoodBookmark(specialtyId = foodId, userId = uid)
                 )
             }
         }

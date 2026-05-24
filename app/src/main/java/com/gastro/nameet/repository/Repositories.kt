@@ -21,6 +21,9 @@ import com.gastro.nameet.model.User
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -244,6 +247,16 @@ class AuthRepository @Inject constructor(
         userDao.getLoggedInUser().map { entity ->
             entity?.toModel()
         }
+
+    /**
+     * Stable per-user identifier used everywhere we scope data to "the user"
+     * (bookmarks, comments, etc). Emits empty string when no one is logged in.
+     */
+    fun currentUserIdFlow(): Flow<String> =
+        getLoggedInUser().map { it?.id?.toString().orEmpty() }
+
+    suspend fun currentUserId(): String =
+        getLoggedInUser().firstOrNull()?.id?.toString().orEmpty()
 
     fun getUserByEmail(email: String): Flow<User?> =
         userDao.getUserByEmail(email).map { entity ->
