@@ -15,6 +15,7 @@ import androidx.navigation.NavController
 import com.gastro.nameet.R
 import com.gastro.nameet.util.RouteConstants
 import com.gastro.nameet.viewmodel.AuthViewModel
+import com.gastro.nameet.ui.components.AuthBackground
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -34,11 +35,10 @@ fun LoginScreen(
         }
     }
 
-    Scaffold { paddingValues ->
+    AuthBackground {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(paddingValues)
                 .padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center

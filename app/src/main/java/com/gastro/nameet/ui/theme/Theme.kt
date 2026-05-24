@@ -52,7 +52,7 @@ private val DarkColorScheme = darkColorScheme(
 @Composable
 fun GastroTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
-    dynamicColor: Boolean = true, // Android 12+ dynamic colors
+    dynamicColor: Boolean = false, // Android 12+ dynamic colors
     content: @Composable () -> Unit
 ) {
     val colorScheme = when {

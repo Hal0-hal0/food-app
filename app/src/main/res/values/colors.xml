@@ -9,4 +9,5 @@
     <color name="success">#388E3C</color>
     <color name="gray100">#F5F5F5</color>
     <color name="gray500">#9E9E9E</color>
+    <color name="ic_launcher_background">#00000000</color>
 </resources>
