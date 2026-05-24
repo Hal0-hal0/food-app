@@ -30,7 +30,9 @@ fun AppNavigation() {
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     
     // We get the current route cleanly by dropping any arguments
-    val currentRoute = navBackStackEntry?.destination?.route?.substringBefore("/")
+    val currentRoute = navBackStackEntry?.destination?.route
+        ?.substringBefore("/")
+        ?.substringBefore("?")
 
     val bottomNavRoutes = listOf(
         RouteConstants.HOME,
@@ -126,6 +128,27 @@ fun AppNavHost(navController: NavHostController) {
             MapsScreen(navController)
         }
         composable(
+            route = "${RouteConstants.MAPS}?${RouteConstants.MAP_QUERY_ARG}={${RouteConstants.MAP_QUERY_ARG}}&${RouteConstants.LOCATE_PLACE_ID_ARG}={${RouteConstants.LOCATE_PLACE_ID_ARG}}",
+            arguments = listOf(
+                navArgument(RouteConstants.MAP_QUERY_ARG) {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+                navArgument(RouteConstants.LOCATE_PLACE_ID_ARG) {
+                    type = NavType.IntType
+                    defaultValue = RouteConstants.NO_PLACE_ID
+                }
+            )
+        ) { backStackEntry ->
+            MapsScreen(
+                navController = navController,
+                initialSearchQuery = backStackEntry.arguments?.getString(RouteConstants.MAP_QUERY_ARG),
+                initialLocatePlaceId = backStackEntry.arguments?.getInt(RouteConstants.LOCATE_PLACE_ID_ARG)
+                    ?.takeIf { it != RouteConstants.NO_PLACE_ID }
+            )
+        }
+        composable(
             route = "${RouteConstants.PLACE_DETAILS}/{${RouteConstants.PLACE_ID_ARG}}",
             arguments = listOf(
                 navArgument(RouteConstants.PLACE_ID_ARG) { type = NavType.IntType }
@@ -149,6 +172,9 @@ fun AppNavHost(navController: NavHostController) {
         ) { backStackEntry ->
             val category = backStackEntry.arguments?.getString(RouteConstants.CATEGORY_ARG) ?: ""
             SpecialtiesScreen(navController, category)
+        }
+        composable(RouteConstants.ILONGGO_SPECIALTIES) {
+            IlonggoSpecialtiesScreen(navController)
         }
         composable(RouteConstants.BOOKMARKS) {
             BookmarksScreen(navController)

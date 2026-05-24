@@ -18,6 +18,8 @@
     <string name="password">Password</string>
     <string name="confirm_password">Confirm Password</string>
     <string name="full_name">Full Name</string>
+    <string name="first_name">First Name</string>
+    <string name="last_name">Last Name</string>
     <string name="remember_me">Remember me</string>
     <string name="forgot_password">Forgot Password?</string>
     <string name="dont_have_account">Don\'t have an account?</string>
@@ -28,6 +30,7 @@
     <!-- Home Screen -->
     <string name="home">Home</string>
     <string name="hello">Hello,</string>
+    <string name="hello_user">Hello, %1$s</string>
     <string name="search_restaurants">Search restaurants and dishes...</string>
     <string name="featured">Featured</string>
     <string name="categories">Categories</string>

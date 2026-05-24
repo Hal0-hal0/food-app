@@ -11,48 +11,66 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 
-// Light Color Scheme
+// Light Color Scheme - consistent orange branding
 private val LightColorScheme = lightColorScheme(
     primary = PrimaryOrange,
-    secondary = LightOrange,
-    tertiary = TertiaryDarkBlue,
-    background = White,
-    surface = White,
-    error = ErrorRed,
     onPrimary = White,
-    onSecondary = Black,
-    onTertiary = White,
+    primaryContainer = LightOrange,
+    onPrimaryContainer = DarkOrange,
+    secondary = DarkOrange,
+    onSecondary = White,
+    secondaryContainer = LightOrange,
+    onSecondaryContainer = DarkOrange,
+    tertiary = LightOrange,
+    onTertiary = Black,
+    tertiaryContainer = LightOrange,
+    onTertiaryContainer = DarkOrange,
+    background = White,
     onBackground = Black,
+    surface = White,
     onSurface = Black,
-    onError = White,
     surfaceVariant = Gray100,
     onSurfaceVariant = Gray600,
+    outline = Gray400,
+    outlineVariant = Gray200,
+    error = ErrorRed,
+    onError = White,
     scrim = Black
 )
 
-// Dark Color Scheme
+// Dark Color Scheme - consistent orange branding
 private val DarkColorScheme = darkColorScheme(
-    primary = LightOrange,
-    secondary = DarkOrange,
-    tertiary = TertiaryDarkBlue,
+    primary = PrimaryOrange,
+    onPrimary = White,
+    primaryContainer = DarkOrange,
+    onPrimaryContainer = LightOrange,
+    secondary = LightOrange,
+    onSecondary = Black,
+    secondaryContainer = DarkOrange,
+    onSecondaryContainer = LightOrange,
+    tertiary = LightOrange,
+    onTertiary = Black,
+    tertiaryContainer = DarkOrange,
+    onTertiaryContainer = LightOrange,
     background = Color(0xFF1C1B1F),
-    surface = Color(0xFF2C2C2C),
-    error = ErrorRed,
-    onPrimary = Black,
-    onSecondary = White,
-    onTertiary = White,
     onBackground = White,
+    surface = Color(0xFF2C2C2C),
     onSurface = White,
-    onError = White,
     surfaceVariant = Gray700,
     onSurfaceVariant = Gray400,
+    outline = Gray500,
+    outlineVariant = Gray700,
+    error = ErrorRed,
+    onError = White,
     scrim = White
 )
 
 @Composable
 fun GastroTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
-    dynamicColor: Boolean = false, // Android 12+ dynamic colors
+    // Dynamic colors disabled to keep the orange brand identity consistent
+    // regardless of the user's wallpaper on Android 12+
+    dynamicColor: Boolean = false,
     content: @Composable () -> Unit
 ) {
     val colorScheme = when {

@@ -80,7 +80,14 @@ class PlaceRepository @Inject constructor(
         category = category,
         phone = phone,
         address = address,
-        createdAt = createdAt
+        createdAt = createdAt,
+        googlePlaceId = googlePlaceId,
+        photoUrls = photoUrls,
+        website = website,
+        openingHours = openingHours,
+        priceLevel = priceLevel,
+        userRatingsTotal = userRatingsTotal,
+        businessStatus = businessStatus
     )
 
     private fun Place.toEntity() = PlaceEntity(
@@ -94,7 +101,14 @@ class PlaceRepository @Inject constructor(
         category = category,
         phone = phone,
         address = address,
-        createdAt = createdAt
+        createdAt = createdAt,
+        googlePlaceId = googlePlaceId,
+        photoUrls = photoUrls,
+        website = website,
+        openingHours = openingHours,
+        priceLevel = priceLevel,
+        userRatingsTotal = userRatingsTotal,
+        businessStatus = businessStatus
     )
 }
 
@@ -260,6 +274,16 @@ class AuthRepository @Inject constructor(
 
     suspend fun logout() {
         userDao.logoutAllUsers()
+    }
+
+    suspend fun updateProfile(id: Int, name: String, email: String, profileImageUrl: String) {
+        userDao.updateProfile(id, name, email, profileImageUrl)
+    }
+
+    /** Returns true if the current password matched and the row was updated. */
+    suspend fun updatePassword(id: Int, currentPassword: String, newPassword: String): Boolean {
+        val rows = userDao.updatePassword(id, currentPassword, newPassword)
+        return rows > 0
     }
 
     private fun UserEntity.toModel() = User(

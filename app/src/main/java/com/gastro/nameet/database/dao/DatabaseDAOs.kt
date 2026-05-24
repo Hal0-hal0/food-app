@@ -6,6 +6,7 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Update
+import androidx.room.Upsert
 import com.gastro.nameet.database.entity.BookmarkEntity
 import com.gastro.nameet.database.entity.CommentEntity
 import com.gastro.nameet.database.entity.FoodBookmarkEntity
@@ -16,10 +17,13 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface PlaceDao {
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    // @Upsert performs INSERT-or-UPDATE without DELETE, so it doesn't trigger
+    // the bookmark foreign-key CASCADE that would silently erase a user's
+    // bookmark every time the place's row is re-saved.
+    @Upsert
     suspend fun insertPlace(place: PlaceEntity): Long
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Upsert
     suspend fun insertPlaces(places: List<PlaceEntity>)
 
     @Update
@@ -141,6 +145,12 @@ interface UserDao {
 
     @Query("UPDATE users SET isLoggedIn = 0 WHERE isLoggedIn = 1")
     suspend fun logoutAllUsers()
+
+    @Query("UPDATE users SET name = :name, email = :email, profileImageUrl = :profileImageUrl WHERE id = :id")
+    suspend fun updateProfile(id: Int, name: String, email: String, profileImageUrl: String)
+
+    @Query("UPDATE users SET password = :newPassword WHERE id = :id AND password = :currentPassword")
+    suspend fun updatePassword(id: Int, currentPassword: String, newPassword: String): Int
 }
 
 @Dao

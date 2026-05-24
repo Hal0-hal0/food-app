@@ -10,6 +10,7 @@ object Constants {
 
     // API Configuration
     const val MAPS_API_KEY = BuildConfig.MAPS_API_KEY
+    val HAS_MAPS_API_KEY: Boolean = MAPS_API_KEY.isNotBlank()
     const val BASE_API_URL = "https://api.gastronameet.com/"
 
     // Database
@@ -67,6 +68,7 @@ object RouteConstants {
     const val MAPS = "maps"
     const val PLACE_DETAILS = "place_details"
     const val SPECIALTIES = "specialties"
+    const val ILONGGO_SPECIALTIES = "ilonggo_specialties"
     const val BOOKMARKS = "bookmarks"
     const val PROFILE = "profile"
     const val SETTINGS = "settings"
@@ -76,6 +78,9 @@ object RouteConstants {
     const val PLACE_ID_ARG = "placeId"
     const val CATEGORY_ARG = "category"
     const val FOOD_ID_ARG = "foodId"
+    const val MAP_QUERY_ARG = "mapQuery"
+    const val LOCATE_PLACE_ID_ARG = "locatePlaceId"
+    const val NO_PLACE_ID = -2147483648
 }
 
 object DistanceUtils {
