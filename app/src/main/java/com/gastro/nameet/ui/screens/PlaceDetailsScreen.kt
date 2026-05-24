@@ -4,6 +4,8 @@ import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -20,12 +22,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
@@ -35,6 +41,12 @@ import com.gastro.nameet.ui.theme.PrimaryOrange
 import com.gastro.nameet.util.RouteConstants
 import com.gastro.nameet.viewmodel.PlaceDetailsViewModel
 
+private enum class ReviewSort(val label: String) {
+    NEWEST("Newest"),
+    HIGHEST("Rating: high → low"),
+    LOWEST("Rating: low → high")
+}
+
 @OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun PlaceDetailsScreen(
@@ -43,6 +55,18 @@ fun PlaceDetailsScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
+
+    var zoomedImage by remember { mutableStateOf<String?>(null) }
+    var reviewSort by remember { mutableStateOf(ReviewSort.NEWEST) }
+    var showSortMenu by remember { mutableStateOf(false) }
+
+    // Fullscreen image viewer with pinch-to-zoom + drag-to-pan
+    zoomedImage?.let { url ->
+        ZoomableImageDialog(
+            imageUrl = url,
+            onDismiss = { zoomedImage = null }
+        )
+    }
 
     Scaffold(
         topBar = {
@@ -128,7 +152,9 @@ fun PlaceDetailsScreen(
                                 AsyncImage(
                                     model = photos[page],
                                     contentDescription = state.place.name,
-                                    modifier = Modifier.fillMaxSize(),
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .clickable { zoomedImage = photos[page] },
                                     contentScale = ContentScale.Crop
                                 )
                             }
@@ -200,7 +226,8 @@ fun PlaceDetailsScreen(
                                     contentDescription = null,
                                     modifier = Modifier
                                         .size(70.dp)
-                                        .clip(RoundedCornerShape(8.dp)),
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .clickable { zoomedImage = photo },
                                     contentScale = ContentScale.Crop
                                 )
                             }
@@ -479,6 +506,20 @@ fun PlaceDetailsScreen(
 
                 // ── Reviews Section ──
                 val totalReviews = state.comments.size + state.googleReviews.size
+                // Apply the user-selected sort across both Google + local
+                // reviews so the order is consistent. (Plain `val` rather
+                // than `remember` because we're inside LazyListScope, which
+                // is not a @Composable context.)
+                val sortedGoogleReviews = when (reviewSort) {
+                    ReviewSort.NEWEST -> state.googleReviews
+                    ReviewSort.HIGHEST -> state.googleReviews.sortedByDescending { it.rating }
+                    ReviewSort.LOWEST -> state.googleReviews.sortedBy { it.rating }
+                }
+                val sortedComments = when (reviewSort) {
+                    ReviewSort.NEWEST -> state.comments.sortedByDescending { it.createdAt }
+                    ReviewSort.HIGHEST -> state.comments.sortedByDescending { it.rating }
+                    ReviewSort.LOWEST -> state.comments.sortedBy { it.rating }
+                }
                 item {
                     Spacer(modifier = Modifier.height(16.dp))
                     Row(
@@ -503,9 +544,63 @@ fun PlaceDetailsScreen(
                                 )
                             }
                         }
-                        if (!state.isLoadingReviews) {
+                        // Sort menu (only meaningful when we have something to sort)
+                        if (totalReviews > 0) {
+                            Box {
+                                Surface(
+                                    onClick = { showSortMenu = true },
+                                    shape = RoundedCornerShape(20.dp),
+                                    color = PrimaryOrange.copy(alpha = 0.12f),
+                                    contentColor = PrimaryOrange
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Sort,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text(
+                                            text = reviewSort.label,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                    }
+                                }
+                                DropdownMenu(
+                                    expanded = showSortMenu,
+                                    onDismissRequest = { showSortMenu = false }
+                                ) {
+                                    ReviewSort.values().forEach { option ->
+                                        DropdownMenuItem(
+                                            text = {
+                                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                                    if (reviewSort == option) {
+                                                        Icon(
+                                                            Icons.Default.Check,
+                                                            contentDescription = null,
+                                                            tint = PrimaryOrange,
+                                                            modifier = Modifier.size(18.dp)
+                                                        )
+                                                        Spacer(modifier = Modifier.width(8.dp))
+                                                    }
+                                                    Text(option.label)
+                                                }
+                                            },
+                                            onClick = {
+                                                reviewSort = option
+                                                showSortMenu = false
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                        } else if (!state.isLoadingReviews) {
                             Text(
-                                text = "$totalReviews reviews",
+                                text = "0 reviews",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -564,10 +659,10 @@ fun PlaceDetailsScreen(
                         }
                     }
                 } else {
-                    items(state.googleReviews) { review ->
+                    items(sortedGoogleReviews) { review ->
                         GoogleReviewCard(review)
                     }
-                    items(state.comments) { comment ->
+                    items(sortedComments) { comment ->
                         Card(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -756,6 +851,97 @@ private fun InfoRow(
                 text = value,
                 style = MaterialTheme.typography.bodyMedium,
                 color = if (onClick != null) PrimaryOrange else MaterialTheme.colorScheme.onSurface
+            )
+        }
+    }
+}
+
+/**
+ * Fullscreen image viewer. Pinch to zoom, drag to pan, tap to dismiss. Used
+ * when the user taps any photo on the details screen so they can inspect it
+ * up close.
+ */
+@Composable
+private fun ZoomableImageDialog(
+    imageUrl: String,
+    onDismiss: () -> Unit
+) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        var scale by remember { mutableStateOf(1f) }
+        var offsetX by remember { mutableStateOf(0f) }
+        var offsetY by remember { mutableStateOf(0f) }
+
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.95f))
+                .pointerInput(Unit) {
+                    detectTapGestures(
+                        onTap = { onDismiss() },
+                        onDoubleTap = {
+                            // Double-tap to reset / cycle between 1x and 2.5x
+                            if (scale > 1f) {
+                                scale = 1f; offsetX = 0f; offsetY = 0f
+                            } else {
+                                scale = 2.5f
+                            }
+                        }
+                    )
+                },
+            contentAlignment = Alignment.Center
+        ) {
+            AsyncImage(
+                model = imageUrl,
+                contentDescription = null,
+                contentScale = ContentScale.Fit,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer(
+                        scaleX = scale,
+                        scaleY = scale,
+                        translationX = offsetX,
+                        translationY = offsetY
+                    )
+                    .pointerInput(Unit) {
+                        detectTransformGestures { _, pan, zoom, _ ->
+                            scale = (scale * zoom).coerceIn(1f, 5f)
+                            if (scale > 1f) {
+                                offsetX += pan.x
+                                offsetY += pan.y
+                            } else {
+                                offsetX = 0f
+                                offsetY = 0f
+                            }
+                        }
+                    }
+            )
+
+            // Close button (top right)
+            IconButton(
+                onClick = onDismiss,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(16.dp)
+            ) {
+                Icon(
+                    Icons.Default.Close,
+                    contentDescription = "Close",
+                    tint = Color.White,
+                    modifier = Modifier.size(28.dp)
+                )
+            }
+
+            // Hint text
+            Text(
+                text = "Pinch to zoom • Double-tap to reset",
+                style = MaterialTheme.typography.labelSmall,
+                color = Color.White.copy(alpha = 0.7f),
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 32.dp)
             )
         }
     }

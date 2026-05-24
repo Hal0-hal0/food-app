@@ -294,29 +294,79 @@ class HomeViewModel @Inject constructor(
     /**
      * Picks a category and tagline based on the current local time so the
      * Home suggestion section shifts through the day.
+     *
+     * The sample DB and Google-fetched places don't necessarily use literal
+     * "breakfast"/"lunch"/"dinner" categories (we see things like "Batchoy",
+     * "Pancit Molo", "Seafood"), so we match by keyword across name +
+     * description + category, with a top-rated fallback if nothing matches.
      */
     private fun buildDailySuggestion(places: List<Place>): DailySuggestion {
         val hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
-        val (greeting, mealLabel, tagline, category) = when (hour) {
-            in 5..10 -> Quad("Good morning!", "Breakfast", "Start your day with something warm.", "breakfast")
-            in 11..13 -> Quad("Lunch time", "Lunch", "Filling Ilonggo classics to power your afternoon.", "lunch")
-            in 14..16 -> Quad("Merienda hour", "Snacks", "A little something to bridge the day.", "snacks")
-            in 17..21 -> Quad("Dinner is served", "Dinner", "Wind down with hearty local favorites.", "dinner")
-            else -> Quad("Late night cravings", "Soup", "Comforting soups perfect for late nights.", "soup")
+
+        data class Spec(
+            val greeting: String,
+            val mealLabel: String,
+            val tagline: String,
+            val category: String,
+            val keywords: List<String>
+        )
+
+        val spec = when (hour) {
+            in 5..10 -> Spec(
+                "Good morning!", "Breakfast",
+                "Start your day with something warm.",
+                "breakfast",
+                listOf("breakfast", "biscocho", "ensaymada", "puto", "pandesal", "coffee", "siopao", "bread", "pastry")
+            )
+            in 11..13 -> Spec(
+                "Lunch time", "Lunch",
+                "Filling Ilonggo classics to power your afternoon.",
+                "lunch",
+                listOf("lunch", "batchoy", "pancit", "kansi", "rice", "chicken", "pork", "noodles")
+            )
+            in 14..16 -> Spec(
+                "Merienda hour", "Snacks",
+                "A little something to bridge the day.",
+                "snacks",
+                listOf("snacks", "siopao", "biscocho", "merienda", "dessert", "pastry", "sweet")
+            )
+            in 17..21 -> Spec(
+                "Dinner is served", "Dinner",
+                "Wind down with hearty local favorites.",
+                "dinner",
+                listOf("dinner", "seafood", "kansi", "grilled", "restaurant", "barbecue", "inihaw", "binakol")
+            )
+            else -> Spec(
+                "Late night cravings", "Soup",
+                "Comforting soups perfect for late nights.",
+                "soup",
+                listOf("soup", "batchoy", "kansi", "binakol", "molo", "broth", "laswa")
+            )
         }
+
+        fun Place.matchesMeal(): Boolean {
+            val haystack = (name + " " + description + " " + category).lowercase()
+            return spec.keywords.any { kw -> haystack.contains(kw) }
+        }
+
+        val matched = places.filter { it.matchesMeal() }
+            .sortedByDescending { it.rating }
+            .take(5)
+
+        // Fallback: if our keyword pass produced nothing, show top-rated places
+        // overall so the section never looks broken.
+        val picks = matched.ifEmpty {
+            places.sortedByDescending { it.rating }.take(5)
+        }
+
         return DailySuggestion(
-            greeting = greeting,
-            mealLabel = mealLabel,
-            tagline = tagline,
-            category = category,
-            places = places
-                .filter { it.category.equals(category, ignoreCase = true) }
-                .sortedByDescending { it.rating }
-                .take(5)
+            greeting = spec.greeting,
+            mealLabel = spec.mealLabel,
+            tagline = spec.tagline,
+            category = spec.category,
+            places = picks
         )
     }
-
-    private data class Quad(val a: String, val b: String, val c: String, val d: String)
 
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()

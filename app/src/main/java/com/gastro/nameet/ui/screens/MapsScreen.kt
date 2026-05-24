@@ -239,9 +239,19 @@ fun MapsScreen(
             ) {
                 val customMarker = rememberCustomMarkerBitmap()
 
+                // Use rememberMarkerState keyed by place id so each Marker
+                // keeps a stable identity across recompositions. Without this,
+                // every time selectedPlace flips (open / close the bottom
+                // sheet) the forEach creates a brand-new MarkerState, which
+                // Compose-Maps interprets as "old marker removed, new marker
+                // added" — looks like the whole pin set is loading again.
                 state.places.forEach { place ->
+                    val markerState = rememberMarkerState(
+                        key = "place-${place.id}",
+                        position = LatLng(place.latitude, place.longitude)
+                    )
                     Marker(
-                        state = MarkerState(position = LatLng(place.latitude, place.longitude)),
+                        state = markerState,
                         title = place.name,
                         snippet = place.address.ifBlank { place.category },
                         icon = customMarker,
@@ -255,13 +265,15 @@ fun MapsScreen(
                 // Show user location marker if we have it but the map's blue dot is disabled
                 if (hasLocationPermission && state.userLocation != null) {
                     val userMarker = rememberUserLocationMarkerBitmap()
+                    val userMarkerState = rememberMarkerState(
+                        key = "user-location",
+                        position = LatLng(
+                            state.userLocation!!.latitude,
+                            state.userLocation!!.longitude
+                        )
+                    )
                     Marker(
-                        state = MarkerState(
-                            position = LatLng(
-                                state.userLocation!!.latitude,
-                                state.userLocation!!.longitude
-                            )
-                        ),
+                        state = userMarkerState,
                         title = "You are here",
                         icon = userMarker
                     )

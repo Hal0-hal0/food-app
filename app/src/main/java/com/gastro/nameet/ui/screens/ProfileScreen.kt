@@ -31,6 +31,38 @@ fun ProfileScreen(
 ) {
     val authState by viewModel.authState.collectAsState()
     val darkMode by settingsViewModel.darkMode.collectAsState()
+    var showLogoutDialog by remember { mutableStateOf(false) }
+
+    if (showLogoutDialog) {
+        AlertDialog(
+            onDismissRequest = { showLogoutDialog = false },
+            icon = { Icon(Icons.Default.Logout, contentDescription = null) },
+            title = { Text("Log out?") },
+            text = {
+                Text("You'll need to sign in again to see your bookmarks and settings.")
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showLogoutDialog = false
+                        viewModel.logout()
+                        navController.navigate(RouteConstants.START) {
+                            popUpTo(0) { inclusive = true }
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error,
+                        contentColor = MaterialTheme.colorScheme.onError
+                    )
+                ) { Text("Log out") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showLogoutDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
 
     Scaffold(
         topBar = {
@@ -105,22 +137,11 @@ fun ProfileScreen(
                     )
                 }
             )
-            
-            ProfileOption(
-                icon = Icons.Default.Info,
-                label = stringResource(R.string.about_us),
-                onClick = { /* Navigate to About */ }
-            )
-            
+
             Spacer(modifier = Modifier.weight(1f))
             
             Button(
-                onClick = { 
-                    viewModel.logout()
-                    navController.navigate(RouteConstants.START) {
-                        popUpTo(0) { inclusive = true }
-                    }
-                },
+                onClick = { showLogoutDialog = true },
                 modifier = Modifier.fillMaxWidth().height(56.dp),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = MaterialTheme.colorScheme.errorContainer,

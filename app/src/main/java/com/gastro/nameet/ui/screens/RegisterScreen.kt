@@ -6,6 +6,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -16,6 +17,7 @@ import com.gastro.nameet.R
 import com.gastro.nameet.util.RouteConstants
 import com.gastro.nameet.viewmodel.AuthViewModel
 import com.gastro.nameet.ui.components.AuthBackground
+import com.gastro.nameet.ui.components.AuthTextField
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -51,7 +53,8 @@ fun RegisterScreen(
             Text(
                 text = stringResource(R.string.sign_up),
                 style = MaterialTheme.typography.headlineLarge,
-                fontWeight = FontWeight.Bold
+                fontWeight = FontWeight.Bold,
+                color = Color.White
             )
 
             Spacer(modifier = Modifier.height(32.dp))
@@ -60,57 +63,47 @@ fun RegisterScreen(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                OutlinedTextField(
+                AuthTextField(
                     value = firstName,
                     onValueChange = { firstName = it; localError = null },
-                    label = { Text(stringResource(R.string.first_name)) },
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(12.dp),
-                    singleLine = true
+                    label = stringResource(R.string.first_name),
+                    modifier = Modifier.weight(1f)
                 )
-                OutlinedTextField(
+                AuthTextField(
                     value = lastName,
                     onValueChange = { lastName = it; localError = null },
-                    label = { Text(stringResource(R.string.last_name)) },
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(12.dp),
-                    singleLine = true
+                    label = stringResource(R.string.last_name),
+                    modifier = Modifier.weight(1f)
                 )
             }
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            OutlinedTextField(
+            AuthTextField(
                 value = email,
                 onValueChange = { email = it; localError = null },
-                label = { Text(stringResource(R.string.email)) },
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp),
-                singleLine = true
+                label = stringResource(R.string.email),
+                modifier = Modifier.fillMaxWidth()
             )
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            OutlinedTextField(
+            AuthTextField(
                 value = password,
                 onValueChange = { password = it; localError = null },
-                label = { Text(stringResource(R.string.password)) },
+                label = stringResource(R.string.password),
                 modifier = Modifier.fillMaxWidth(),
-                visualTransformation = PasswordVisualTransformation(),
-                shape = RoundedCornerShape(12.dp),
-                singleLine = true
+                visualTransformation = PasswordVisualTransformation()
             )
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            OutlinedTextField(
+            AuthTextField(
                 value = confirmPassword,
                 onValueChange = { confirmPassword = it; localError = null },
-                label = { Text(stringResource(R.string.confirm_password)) },
+                label = stringResource(R.string.confirm_password),
                 modifier = Modifier.fillMaxWidth(),
-                visualTransformation = PasswordVisualTransformation(),
-                shape = RoundedCornerShape(12.dp),
-                singleLine = true
+                visualTransformation = PasswordVisualTransformation()
             )
 
             val displayError = localError ?: authState.error

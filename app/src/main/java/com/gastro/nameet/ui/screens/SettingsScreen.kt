@@ -12,8 +12,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.DarkMode
+import androidx.compose.material.icons.filled.Groups
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.School
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -47,7 +50,14 @@ fun SettingsScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val user = authState.user
 
-    var name by remember(user?.id) { mutableStateOf(user?.name.orEmpty()) }
+    // Split the stored "First Last" string into separate fields and recombine on save.
+    val storedName = user?.name.orEmpty()
+    val (initialFirst, initialLast) = remember(storedName) {
+        val parts = storedName.trim().split(" ", limit = 2)
+        (parts.getOrNull(0).orEmpty()) to (parts.getOrNull(1).orEmpty())
+    }
+    var firstName by remember(user?.id) { mutableStateOf(initialFirst) }
+    var lastName by remember(user?.id) { mutableStateOf(initialLast) }
     var email by remember(user?.id) { mutableStateOf(user?.email.orEmpty()) }
     var profileImageUrl by remember(user?.id) { mutableStateOf(user?.profileImageUrl.orEmpty()) }
     var currentPassword by remember { mutableStateOf("") }
@@ -147,14 +157,27 @@ fun SettingsScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            OutlinedTextField(
-                value = name,
-                onValueChange = { name = it },
-                label = { Text(stringResource(R.string.full_name)) },
+            Row(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp),
-                singleLine = true
-            )
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                OutlinedTextField(
+                    value = firstName,
+                    onValueChange = { firstName = it },
+                    label = { Text(stringResource(R.string.first_name)) },
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(12.dp),
+                    singleLine = true
+                )
+                OutlinedTextField(
+                    value = lastName,
+                    onValueChange = { lastName = it },
+                    label = { Text(stringResource(R.string.last_name)) },
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(12.dp),
+                    singleLine = true
+                )
+            }
             Spacer(modifier = Modifier.height(12.dp))
             OutlinedTextField(
                 value = email,
@@ -168,7 +191,8 @@ fun SettingsScreen(
             Button(
                 onClick = {
                     user?.id?.let { id ->
-                        settingsViewModel.updateProfile(id, name, email, profileImageUrl)
+                        val combined = "${firstName.trim()} ${lastName.trim()}".trim()
+                        settingsViewModel.updateProfile(id, combined, email, profileImageUrl)
                     }
                 },
                 modifier = Modifier.fillMaxWidth().height(48.dp),
@@ -273,22 +297,133 @@ fun SettingsScreen(
             }
 
             Spacer(modifier = Modifier.height(16.dp))
+            HorizontalDivider()
+            Spacer(modifier = Modifier.height(16.dp))
 
+            AboutUsSection()
+
+            Spacer(modifier = Modifier.height(48.dp))
+        }
+    }
+}
+
+@Composable
+private fun AboutUsSection() {
+    SectionTitle("About Us", icon = Icons.Default.Info)
+    Spacer(modifier = Modifier.height(12.dp))
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            // Subject
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.School, contentDescription = null, tint = PrimaryOrange, modifier = Modifier.size(20.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Column {
+                    Text(
+                        text = "Subject",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = "CIT 238 — Mobile Applications Development",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Teacher
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Person, contentDescription = null, tint = PrimaryOrange, modifier = Modifier.size(20.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Column {
+                    Text(
+                        text = "Instructor",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = "Mr. John Cristopher Matteo",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Developers
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Groups, contentDescription = null, tint = PrimaryOrange, modifier = Modifier.size(20.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Developers",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = PrimaryOrange
+                )
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+
+            val developers = listOf(
+                "Geneveb Abadoya",
+                "Paul Lunaspe",
+                "TJ Larroza",
+                "Jorich Dohinog",
+                "Roselle Agaton"
+            )
+            developers.forEach { name ->
+                Row(
+                    modifier = Modifier.padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Surface(
+                        modifier = Modifier.size(28.dp),
+                        shape = CircleShape,
+                        color = PrimaryOrange.copy(alpha = 0.15f)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Text(
+                                text = name.split(" ").mapNotNull { it.firstOrNull()?.uppercase() }
+                                    .take(2).joinToString(""),
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = PrimaryOrange
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Text(
+                        text = name,
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // App
             Text(
-                text = stringResource(R.string.about),
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.primary,
+                text = "Gastro Nameet",
+                style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.Bold
             )
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(text = "Version: 1.0.0", style = MaterialTheme.typography.bodySmall)
             Text(
-                text = stringResource(R.string.app_description),
+                text = "Version 1.0.0 • Discover local gastronomic delights",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-
-            Spacer(modifier = Modifier.height(48.dp))
         }
     }
 }
