@@ -45,6 +45,8 @@ import kotlinx.coroutines.launch
 @Composable
 fun MapsScreen(
     navController: NavController,
+    initialSearchQuery: String? = null,
+    initialLocatePlaceId: Int? = null,
     viewModel: MapsViewModel = hiltViewModel()
 ) {
     val state by viewModel.mapState.collectAsState()
@@ -74,6 +76,23 @@ fun MapsScreen(
     }
     val mapTypeLabels = listOf("Standard", "Satellite", "Terrain", "Hybrid")
 
+    // The nav arguments are read on every entry to the screen. Use Unit + arg
+    // values so re-navigating with the same args still re-triggers (important
+    // when restoreState keeps the composable alive).
+    LaunchedEffect(initialSearchQuery, initialLocatePlaceId) {
+        if (initialLocatePlaceId != null) {
+            // Locate-mode: a specific place was requested. Clear search, show
+            // only this pin, draw a route from the user's actual location.
+            viewModel.locatePlaceOnMap(initialLocatePlaceId, drawRoute = true)
+        } else if (!initialSearchQuery.isNullOrBlank()) {
+            // Search-mode (e.g. "Find Near You"): wipe ALL previous state
+            // first — polyline to a previously-located place would otherwise
+            // survive across screens because the ViewModel is restored.
+            viewModel.resetForNewSearch()
+            viewModel.onSearchQueryChange(initialSearchQuery)
+        }
+    }
+
     // Location permissions
     val locationPermissionsState = rememberMultiplePermissionsState(
         permissions = listOf(
@@ -96,8 +115,10 @@ fun MapsScreen(
         }
     }
 
-    // When search results change, zoom the camera to fit all markers
-    LaunchedEffect(state.places) {
+    // When search results change, zoom the camera to fit all markers.
+    // Skip when locating a single place (the polyline effect handles framing).
+    LaunchedEffect(state.places, state.locatePlaceId) {
+        if (state.locatePlaceId != null) return@LaunchedEffect
         if (searchQuery.isNotBlank() && state.places.isNotEmpty()) {
             if (state.places.size == 1) {
                 val p = state.places.first()
@@ -108,7 +129,7 @@ fun MapsScreen(
                         )
                     )
                 }
-            } else if (state.places.size > 1) {
+            } else {
                 val boundsBuilder = LatLngBounds.builder()
                 state.places.forEach { p ->
                     boundsBuilder.include(LatLng(p.latitude, p.longitude))
@@ -125,7 +146,7 @@ fun MapsScreen(
                     }
                 }
             }
-        } else if (searchQuery.isBlank()) {
+        } else if (searchQuery.isBlank() && state.places.isEmpty()) {
             scope.launch {
                 cameraPositionState.animate(
                     CameraUpdateFactory.newLatLngZoom(iloilo, Constants.DEFAULT_ZOOM)
@@ -134,8 +155,10 @@ fun MapsScreen(
         }
     }
 
-    // React to user location updates
+    // React to user location updates only when there's nothing else framed.
     LaunchedEffect(state.userLocation) {
+        if (state.polylines.isNotEmpty()) return@LaunchedEffect
+        if (state.places.isNotEmpty()) return@LaunchedEffect
         state.userLocation?.let { loc ->
             scope.launch {
                 cameraPositionState.animate(
@@ -143,6 +166,39 @@ fun MapsScreen(
                         LatLng(loc.latitude, loc.longitude), 16f
                     )
                 )
+            }
+        }
+    }
+
+    LaunchedEffect(state.polylines) {
+        val routePoints = state.polylines.flatMap { it.points }
+        if (routePoints.isNotEmpty()) {
+            val boundsBuilder = LatLngBounds.builder()
+            routePoints.forEach { point ->
+                boundsBuilder.include(LatLng(point.latitude, point.longitude))
+            }
+            // Only include destination places in framing, not all pins. In
+            // locate-mode there's only one place anyway.
+            state.places
+                .filter { it.id in state.polylines.flatMap { p -> p.placeIds } }
+                .forEach { place ->
+                    boundsBuilder.include(LatLng(place.latitude, place.longitude))
+                }
+            scope.launch {
+                try {
+                    cameraPositionState.animate(
+                        CameraUpdateFactory.newLatLngBounds(boundsBuilder.build(), 140)
+                    )
+                } catch (e: Exception) {
+                    state.places.firstOrNull()?.let { place ->
+                        cameraPositionState.animate(
+                            CameraUpdateFactory.newLatLngZoom(
+                                LatLng(place.latitude, place.longitude),
+                                15f
+                            )
+                        )
+                    }
+                }
             }
         }
     }
@@ -170,10 +226,10 @@ fun MapsScreen(
                 uiSettings = MapUiSettings(
                     zoomControlsEnabled = false,
                     myLocationButtonEnabled = false
-                ),
-                onMapClick = {
-                    viewModel.clearPolylines()
-                }
+                )
+                // Note: no onMapClick handler — tapping empty map space
+                // should NOT clear the route. Use the X on the route info
+                // card or the Reset button to clear.
             ) {
                 state.places.forEach { place ->
                     Marker(
@@ -418,6 +474,32 @@ fun MapsScreen(
                     }
                 }
             }
+
+            if (state.isLoading && state.loadingSource == LoadingSource.ROUTE) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
+                        shadowElevation = 8.dp
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(24.dp),
+                                strokeWidth = 3.dp,
+                                color = PrimaryOrange
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text("Drawing route...", style = MaterialTheme.typography.bodyMedium)
+                        }
+                    }
+                }
+            }
         }
 
         // Bottom sheet
@@ -451,8 +533,11 @@ fun MapsScreen(
                         }
                     },
                     onFullDetailsClick = {
-                        // Bug 4 fix: save the place to DB before navigating
+                        // Save the place to DB before navigating + clear any
+                        // active polyline so it doesn't redraw to this place
+                        // when the user returns.
                         viewModel.savePlaceForDetails(place)
+                        viewModel.prepareForNavigation()
                         showBottomSheet = false
                         viewModel.clearSelectedPlace()
                         navController.navigate("${RouteConstants.PLACE_DETAILS}/${place.id}")

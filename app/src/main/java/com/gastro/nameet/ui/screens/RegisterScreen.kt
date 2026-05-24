@@ -22,11 +22,13 @@ fun RegisterScreen(
     navController: NavController,
     viewModel: AuthViewModel = hiltViewModel()
 ) {
-    var name by remember { mutableStateOf("") }
+    var firstName by remember { mutableStateOf("") }
+    var lastName by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var confirmPassword by remember { mutableStateOf("") }
-    
+    var localError by remember { mutableStateOf<String?>(null) }
+
     val authState by viewModel.authState.collectAsState()
 
     LaunchedEffect(authState.isLoggedIn) {
@@ -51,65 +53,92 @@ fun RegisterScreen(
                 style = MaterialTheme.typography.headlineLarge,
                 fontWeight = FontWeight.Bold
             )
-            
+
             Spacer(modifier = Modifier.height(32.dp))
-            
-            OutlinedTextField(
-                value = name,
-                onValueChange = { name = it },
-                label = { Text(stringResource(R.string.full_name)) },
+
+            Row(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp)
-            )
-            
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                OutlinedTextField(
+                    value = firstName,
+                    onValueChange = { firstName = it; localError = null },
+                    label = { Text(stringResource(R.string.first_name)) },
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(12.dp),
+                    singleLine = true
+                )
+                OutlinedTextField(
+                    value = lastName,
+                    onValueChange = { lastName = it; localError = null },
+                    label = { Text(stringResource(R.string.last_name)) },
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(12.dp),
+                    singleLine = true
+                )
+            }
+
             Spacer(modifier = Modifier.height(16.dp))
-            
+
             OutlinedTextField(
                 value = email,
-                onValueChange = { email = it },
+                onValueChange = { email = it; localError = null },
                 label = { Text(stringResource(R.string.email)) },
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp)
+                shape = RoundedCornerShape(12.dp),
+                singleLine = true
             )
-            
+
             Spacer(modifier = Modifier.height(16.dp))
-            
+
             OutlinedTextField(
                 value = password,
-                onValueChange = { password = it },
+                onValueChange = { password = it; localError = null },
                 label = { Text(stringResource(R.string.password)) },
                 modifier = Modifier.fillMaxWidth(),
                 visualTransformation = PasswordVisualTransformation(),
-                shape = RoundedCornerShape(12.dp)
+                shape = RoundedCornerShape(12.dp),
+                singleLine = true
             )
-            
+
             Spacer(modifier = Modifier.height(16.dp))
-            
+
             OutlinedTextField(
                 value = confirmPassword,
-                onValueChange = { confirmPassword = it },
+                onValueChange = { confirmPassword = it; localError = null },
                 label = { Text(stringResource(R.string.confirm_password)) },
                 modifier = Modifier.fillMaxWidth(),
                 visualTransformation = PasswordVisualTransformation(),
-                shape = RoundedCornerShape(12.dp)
+                shape = RoundedCornerShape(12.dp),
+                singleLine = true
             )
-            
-            if (authState.error != null) {
+
+            val displayError = localError ?: authState.error
+            if (displayError != null) {
                 Text(
-                    text = authState.error!!,
+                    text = displayError,
                     color = MaterialTheme.colorScheme.error,
                     modifier = Modifier.padding(top = 8.dp)
                 )
             }
-            
+
             Spacer(modifier = Modifier.height(32.dp))
-            
+
             Button(
-                onClick = { 
-                    if (password == confirmPassword) {
-                        viewModel.register(email, name, password)
-                    } else {
-                        // Show mismatch error
+                onClick = {
+                    when {
+                        firstName.isBlank() || lastName.isBlank() ->
+                            localError = "First and last name are required"
+                        email.isBlank() ->
+                            localError = "Email is required"
+                        password.length < 6 ->
+                            localError = "Password must be at least 6 characters"
+                        password != confirmPassword ->
+                            localError = "Passwords do not match"
+                        else -> {
+                            val fullName = "${firstName.trim()} ${lastName.trim()}".trim()
+                            viewModel.register(email.trim(), fullName, password)
+                        }
                     }
                 },
                 modifier = Modifier.fillMaxWidth().height(56.dp),
@@ -122,7 +151,7 @@ fun RegisterScreen(
                     Text(stringResource(R.string.sign_up))
                 }
             }
-            
+
             TextButton(
                 onClick = { navController.popBackStack() }
             ) {

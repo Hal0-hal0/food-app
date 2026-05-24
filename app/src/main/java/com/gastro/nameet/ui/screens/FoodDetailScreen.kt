@@ -1,5 +1,6 @@
 package com.gastro.nameet.ui.screens
 
+import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -175,14 +176,15 @@ fun FoodDetailScreen(
             // ── Find Establishments Button ──
             Button(
                 onClick = {
-                    // Navigate to Maps screen and search for this food
-                    navController.navigate(RouteConstants.MAPS) {
-                        popUpTo(RouteConstants.HOME) { saveState = true }
+                    // Don't restoreState: each navigation to parameterized
+                    // Maps must start from a clean MapsViewModel so a previous
+                    // polyline / locate target can't leak across screens.
+                    navController.navigate(
+                        "${RouteConstants.MAPS}?${RouteConstants.MAP_QUERY_ARG}=${Uri.encode(specialty.name)}&${RouteConstants.LOCATE_PLACE_ID_ARG}=${RouteConstants.NO_PLACE_ID}"
+                    ) {
+                        popUpTo(RouteConstants.HOME)
                         launchSingleTop = true
-                        restoreState = true
                     }
-                    // TODO: After navigation, auto-fill the search with specialty name
-                    // This would require a shared state mechanism or passing the query as an argument
                 },
                 modifier = Modifier
                     .fillMaxWidth()

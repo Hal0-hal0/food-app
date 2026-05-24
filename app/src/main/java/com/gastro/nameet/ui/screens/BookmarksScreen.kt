@@ -1,5 +1,7 @@
 package com.gastro.nameet.ui.screens
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -11,6 +13,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -18,8 +21,9 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
+import com.gastro.nameet.model.BookmarkItem
 import com.gastro.nameet.model.BookmarkSortOption
-import com.gastro.nameet.model.Place
+import com.gastro.nameet.model.BookmarkType
 import com.gastro.nameet.ui.theme.PrimaryOrange
 import com.gastro.nameet.util.RouteConstants
 import com.gastro.nameet.viewmodel.BookmarkViewModel
@@ -32,20 +36,20 @@ fun BookmarksScreen(
 ) {
     val state by viewModel.bookmarkState.collectAsState()
     var showSortMenu by remember { mutableStateOf(false) }
+    var filter by remember { mutableStateOf<BookmarkType?>(null) }
 
     LaunchedEffect(Unit) {
-        viewModel.loadUserBookmarks("current_user") // Replace with actual user ID
+        viewModel.loadUserBookmarks("current_user")
+    }
+
+    val filtered = remember(state.bookmarks, filter) {
+        if (filter == null) state.bookmarks else state.bookmarks.filter { it.type == filter }
     }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { 
-                    Text(
-                        text = "Bookmarks",
-                        fontWeight = FontWeight.Bold
-                    ) 
-                },
+                title = { Text(text = "Bookmarks", fontWeight = FontWeight.Bold) },
                 actions = {
                     if (state.bookmarks.isNotEmpty()) {
                         Box {
@@ -81,7 +85,10 @@ fun BookmarksScreen(
                             }
                         }
                     }
-                }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.surface
+                )
             )
         }
     ) { paddingValues ->
@@ -91,7 +98,10 @@ fun BookmarksScreen(
                 .padding(paddingValues)
         ) {
             if (state.isLoading) {
-                CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
+                CircularProgressIndicator(
+                    modifier = Modifier.align(Alignment.Center),
+                    color = PrimaryOrange
+                )
             } else if (state.bookmarks.isEmpty()) {
                 Column(
                     modifier = Modifier.fillMaxSize(),
@@ -112,7 +122,7 @@ fun BookmarksScreen(
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "Tap the bookmark icon on any place to save it here",
+                        text = "Bookmark places or Ilonggo specialties to save them here",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                     )
@@ -123,27 +133,63 @@ fun BookmarksScreen(
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    // Sort label
                     item {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            FilterPill(
+                                label = "All (${state.bookmarks.size})",
+                                selected = filter == null,
+                                onClick = { filter = null }
+                            )
+                            val placeCount = state.bookmarks.count { it.type == BookmarkType.PLACE }
+                            val specCount = state.bookmarks.count { it.type == BookmarkType.SPECIALTY }
+                            FilterPill(
+                                label = "Places ($placeCount)",
+                                selected = filter == BookmarkType.PLACE,
+                                onClick = { filter = BookmarkType.PLACE }
+                            )
+                            FilterPill(
+                                label = "Specialties ($specCount)",
+                                selected = filter == BookmarkType.SPECIALTY,
+                                onClick = { filter = BookmarkType.SPECIALTY }
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
                         Text(
                             text = "Sorted by: ${state.sortOption.displayName}",
                             style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(bottom = 4.dp)
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
 
-                    items(state.bookmarks) { place ->
-                        BookmarkCard(
-                            place = place,
+                    items(filtered, key = { it.key }) { item ->
+                        BookmarkRow(
+                            item = item,
                             onClick = {
-                                navController.navigate("${RouteConstants.PLACE_DETAILS}/${place.id}")
-                            },
-                            onLocateClick = {
-                                viewModel.locatePlace(place.id)
-                                navController.navigate(RouteConstants.MAPS) {
-                                    popUpTo(RouteConstants.HOME)
+                                when (item.type) {
+                                    BookmarkType.PLACE -> item.placeId?.let {
+                                        navController.navigate("${RouteConstants.PLACE_DETAILS}/$it")
+                                    }
+                                    BookmarkType.SPECIALTY -> item.specialtyId?.let {
+                                        navController.navigate("${RouteConstants.FOOD_DETAIL}/$it")
+                                    }
                                 }
+                            },
+                            onLocateClick = if (item.type == BookmarkType.PLACE && item.placeId != null) {
+                                {
+                                    navController.navigate(
+                                        "${RouteConstants.MAPS}?${RouteConstants.MAP_QUERY_ARG}=&${RouteConstants.LOCATE_PLACE_ID_ARG}=${item.placeId}"
+                                    ) {
+                                        popUpTo(RouteConstants.HOME)
+                                        launchSingleTop = true
+                                    }
+                                }
+                            } else null,
+                            onRemoveClick = {
+                                viewModel.removeBookmark(item, "current_user")
                             }
                         )
                     }
@@ -166,10 +212,28 @@ fun BookmarksScreen(
 }
 
 @Composable
-fun BookmarkCard(
-    place: Place,
+private fun FilterPill(label: String, selected: Boolean, onClick: () -> Unit) {
+    Surface(
+        modifier = Modifier.clickable { onClick() },
+        shape = RoundedCornerShape(20.dp),
+        color = if (selected) PrimaryOrange else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+        contentColor = if (selected) Color.White else MaterialTheme.colorScheme.onSurface
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+        )
+    }
+}
+
+@Composable
+private fun BookmarkRow(
+    item: BookmarkItem,
     onClick: () -> Unit,
-    onLocateClick: () -> Unit
+    onLocateClick: (() -> Unit)?,
+    onRemoveClick: () -> Unit
 ) {
     Card(
         onClick = onClick,
@@ -179,15 +243,12 @@ fun BookmarkCard(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(IntrinsicSize.Min)
+            modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min)
         ) {
-            // Thumbnail image
-            if (place.imageUrl.isNotBlank()) {
+            if (item.imageUrl.isNotBlank()) {
                 AsyncImage(
-                    model = place.imageUrl,
-                    contentDescription = place.name,
+                    model = item.imageUrl,
+                    contentDescription = item.title,
                     modifier = Modifier
                         .width(100.dp)
                         .fillMaxHeight()
@@ -195,89 +256,80 @@ fun BookmarkCard(
                     contentScale = ContentScale.Crop
                 )
             } else {
-                Box(
+                Surface(
                     modifier = Modifier
                         .width(100.dp)
                         .fillMaxHeight()
-                        .clip(RoundedCornerShape(topStart = 16.dp, bottomStart = 16.dp))
-                        .padding(0.dp),
-                    contentAlignment = Alignment.Center
+                        .clip(RoundedCornerShape(topStart = 16.dp, bottomStart = 16.dp)),
+                    color = MaterialTheme.colorScheme.surfaceVariant
                 ) {
-                    Surface(
-                        modifier = Modifier.fillMaxSize(),
-                        color = MaterialTheme.colorScheme.surfaceVariant
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(
-                                Icons.Default.Restaurant,
-                                contentDescription = null,
-                                modifier = Modifier.size(32.dp),
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
-                            )
-                        }
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            if (item.type == BookmarkType.PLACE) Icons.Default.Restaurant
+                            else Icons.Default.LocalDining,
+                            contentDescription = null,
+                            modifier = Modifier.size(28.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                        )
                     }
                 }
             }
 
-            // Details
             Column(
                 modifier = Modifier
                     .weight(1f)
                     .padding(12.dp)
             ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = PrimaryOrange.copy(alpha = 0.15f)
+                    ) {
+                        Text(
+                            text = if (item.type == BookmarkType.PLACE) "Place" else "Specialty",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = PrimaryOrange,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(6.dp))
+
                 Text(
-                    text = place.name,
+                    text = item.title,
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
 
-                Spacer(modifier = Modifier.height(4.dp))
-
-                if (place.address.isNotBlank()) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            Icons.Default.LocationOn,
-                            contentDescription = null,
-                            modifier = Modifier.size(12.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Spacer(modifier = Modifier.width(2.dp))
-                        Text(
-                            text = place.address,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(4.dp))
-                }
-
-                if (place.category.isNotBlank()) {
+                if (item.subtitle.isNotBlank()) {
+                    Spacer(modifier = Modifier.height(2.dp))
                     Text(
-                        text = place.category.replaceFirstChar { it.uppercase() },
-                        style = MaterialTheme.typography.labelSmall,
-                        color = PrimaryOrange,
-                        fontWeight = FontWeight.SemiBold
+                        text = item.subtitle,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
                     )
-                    Spacer(modifier = Modifier.height(4.dp))
                 }
 
-                if (place.rating > 0f) {
+                if (item.rating > 0f) {
+                    Spacer(modifier = Modifier.height(4.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         repeat(5) { i ->
                             Icon(
                                 Icons.Default.Star,
                                 contentDescription = null,
-                                modifier = Modifier.size(14.dp),
-                                tint = if (i < place.rating) PrimaryOrange else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f)
+                                modifier = Modifier.size(12.dp),
+                                tint = if (i < item.rating) PrimaryOrange else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f)
                             )
                         }
                         Spacer(modifier = Modifier.width(4.dp))
                         Text(
-                            text = String.format("%.1f", place.rating),
+                            text = String.format("%.1f", item.rating),
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.SemiBold
                         )
@@ -285,18 +337,22 @@ fun BookmarkCard(
                 }
             }
 
-            // Actions
             Column(
                 modifier = Modifier
                     .align(Alignment.CenterVertically)
-                    .padding(end = 8.dp),
+                    .padding(end = 4.dp),
                 horizontalAlignment = Alignment.End
             ) {
-                IconButton(onClick = onLocateClick) {
+                if (onLocateClick != null) {
+                    IconButton(onClick = onLocateClick) {
+                        Icon(Icons.Default.Map, contentDescription = "Locate", tint = PrimaryOrange)
+                    }
+                }
+                IconButton(onClick = onRemoveClick) {
                     Icon(
-                        Icons.Default.Map,
-                        contentDescription = "Locate",
-                        tint = PrimaryOrange
+                        Icons.Default.BookmarkRemove,
+                        contentDescription = "Remove",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
